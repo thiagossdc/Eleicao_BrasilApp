@@ -1,6 +1,10 @@
 {
   "name": "eleicao-limpa-2026",
   "private": true,
+  "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "server": "npm run dev --prefix server",
     "client": "npm start --prefix client",

@@ -11,6 +11,10 @@ import { errorMiddleware } from './middleware/errorMiddleware.js';
 export function createApp() {
   const app = express();
 
+  // Atrás do proxy da Vercel, req.ip só é confiável com trust proxy habilitado
+  // (usado no rate limit do tira-duvidas).
+  if (process.env.VERCEL) app.set('trust proxy', 1);
+
   app.use(
     cors({
       origin: env.corsOrigins.length ? env.corsOrigins : true,

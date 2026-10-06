@@ -3,8 +3,10 @@ client/node_modules/
 server/node_modules/
 
 client/dist/
-server/data/
+server/data/*
+!server/data/eleicao.db
 
+.vercel/
 .DS_Store
 .env
 server/.env

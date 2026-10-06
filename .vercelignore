@@ -1,0 +1,20 @@
+# Dependências e builds locais (instalados/gerados novamente na Vercel)
+node_modules/
+client/node_modules/
+server/node_modules/
+client/dist/
+client/.angular/
+.angular/
+
+# Git, config local e segredos
+.git/
+.vercel/
+.env
+server/.env
+
+# Artefatos do SQLite (apenas o .db versionado sobe como seed)
+server/data/*.db-wal
+server/data/*.db-shm
+
+# Sistema
+.DS_Store

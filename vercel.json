@@ -1,0 +1,18 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "npm install --prefix server && npm install --prefix client",
+  "buildCommand": "npm run build --prefix client",
+  "outputDirectory": "client/dist/client/browser",
+  "functions": {
+    "api/*.js": {
+      "maxDuration": 60
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

@@ -1,15 +1,43 @@
 import Database from 'better-sqlite3';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { env } from './config/env.js';
 
-const dataDir = path.join(process.cwd(), 'data');
-if (!fs.existsSync(dataDir)) {
+/** Seed versionado (server/data/eleicao.db) — único caminho estável no bundle da Vercel. */
+const seedDbPath = fileURLToPath(new URL('../data/eleicao.db', import.meta.url));
+
+/** true quando roda como Vercel Function (inclusive `vercel dev`). */
+const isServerless = process.env.VERCEL === '1' || process.env.VERCEL === 'true';
+
+function resolveDbPath() {
+  if (env.sqlitePath) return env.sqlitePath;
+
+  if (!isServerless) {
+    const dataDir = path.join(process.cwd(), 'data');
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    return path.join(dataDir, 'eleicao.db');
+  }
+
+  // Na Vercel o filesystem da function é somente leitura; usa /tmp (gravável,
+  // mas efêmero por instância). Copia o seed na primeira abertura do cold start.
+  const dataDir = path.join(os.tmpdir(), 'eleicao-limpa');
   fs.mkdirSync(dataDir, { recursive: true });
+  const dbPath = path.join(dataDir, 'eleicao.db');
+  if (!fs.existsSync(dbPath)) {
+    if (!fs.existsSync(seedDbPath)) {
+      console.warn('[db] Seed não encontrado no bundle:', seedDbPath);
+    } else {
+      fs.copyFileSync(seedDbPath, dbPath);
+    }
+  }
+  return dbPath;
 }
 
-const dbPath = env.sqlitePath || path.join(dataDir, 'eleicao.db');
-export const db = new Database(dbPath);
+export const db = new Database(resolveDbPath());
 
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
