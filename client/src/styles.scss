@@ -1,17 +1,21 @@
+@import 'leaflet/dist/leaflet.css';
+
 :root {
-  color-scheme: dark;
-  --font-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
-  --color-bg: #0c0e12;
-  --color-surface: #141820;
-  --color-border: #252b36;
-  --color-text: #e8eaef;
-  --color-muted: #8b93a7;
-  --color-accent: #2dd4bf;
-  --color-accent-dim: #115e59;
-  --color-danger: #f87171;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
+  color-scheme: light;
+  --font-sans: 'DM Sans', 'Segoe UI', sans-serif;
+  --color-brand: #173b5e;
+  --color-bg: #f3f5f7;
+  --color-surface: #ffffff;
+  --color-border: #d5dde5;
+  --color-text: #1d2b38;
+  --color-muted: #596a79;
+  --color-accent: #1767a6;
+  --color-accent-dim: #e6f0f8;
+  --color-highlight: #f4c542;
+  --color-danger: #a33b34;
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 7px;
 }
 
 *,
@@ -30,7 +34,7 @@ body {
   font-family: var(--font-sans);
   background: var(--color-bg);
   color: var(--color-text);
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
 a {
@@ -44,7 +48,7 @@ a:hover {
 .btn {
   font: inherit;
   cursor: pointer;
-  border: none;
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
   padding: 0.55rem 1rem;
   transition: background 0.15s ease, color 0.15s ease;
@@ -56,8 +60,8 @@ a:hover {
 }
 
 .btn--primary {
-  background: linear-gradient(145deg, #14b8a6, #0d9488);
-  color: #042f2e;
+  background: var(--color-accent);
+  color: #ffffff;
   font-weight: 600;
 }
 
@@ -72,7 +76,7 @@ a:hover {
 
 .btn--ghost:hover:not(:disabled) {
   color: var(--color-text);
-  background: var(--color-surface);
+  background: var(--color-accent-dim);
 }
 
 .btn--sm {
@@ -84,7 +88,7 @@ a:hover {
   display: inline-flex;
   align-items: center;
   padding: 0.25rem 0.65rem;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   font-size: 0.75rem;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -107,6 +111,17 @@ a:hover {
 }
 
 .badge--warn {
-  background: color-mix(in srgb, #f59e0b 22%, transparent);
-  color: #fbbf24;
+  background: #fff3cf;
+  color: #755300;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--color-accent) 48%, white);
+  outline-offset: 2px;
 }

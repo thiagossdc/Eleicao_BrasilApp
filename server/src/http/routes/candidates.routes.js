@@ -3,6 +3,7 @@ import {
   countCandidates,
   findCandidateByKeys,
   listCandidates,
+  listCandidateFilters,
   listCassacoesByCandidate,
 } from '../../repositories/candidateRead.repository.js';
 import { HttpError } from '../../errors/httpError.js';
@@ -19,15 +20,25 @@ candidatesRouter.get('/', (req, res, next) => {
   try {
     const nomeOuUrna = parseOptionalString(req.query.q);
     const uf = parseOptionalString(req.query.uf);
+    const cargo = parseOptionalString(req.query.cargo);
+    const partido = parseOptionalString(req.query.partido);
     const ano = parseOptionalInt(req.query.ano, 'ano');
     const onlyRisk = parseBooleanQuery(req.query.onlyRisk, false);
     const { limit, offset } = parsePagination(req.query);
 
-    const filters = { nomeOuUrna, uf, ano, onlyRisk, limit, offset };
+    const filters = { nomeOuUrna, uf, cargo, partido, ano, onlyRisk, limit, offset };
     const items = listCandidates(filters);
-    const total = countCandidates({ nomeOuUrna, uf, ano, onlyRisk });
+    const total = countCandidates({ nomeOuUrna, uf, cargo, partido, ano, onlyRisk });
 
     res.json({ items, total, limit, offset });
+  } catch (e) {
+    next(e);
+  }
+});
+
+candidatesRouter.get('/options', (req, res, next) => {
+  try {
+    res.json(listCandidateFilters());
   } catch (e) {
     next(e);
   }

@@ -1,8 +1,11 @@
 <section class="consulta">
   <header class="consulta__intro">
-    <p class="consulta__sync-hint" *ngIf="stats().candidatos === 0">
-      Base vazia. Vá em <a routerLink="/sync">Sincronizar dados</a> para importar CSVs oficiais do TSE (candidatos e motivo da cassação).
+    <p class="consulta__sync-hint" *ngIf="stats() as summary; else loadingStats">
+      <ng-container *ngIf="summary.totalCandidatos === 0">
+        Base vazia. Vá em <a routerLink="/sync">Atualizar dados</a> para importar dados públicos do TSE.
+      </ng-container>
     </p>
+    <ng-template #loadingStats><p class="consulta__error" *ngIf="statsError() as message" role="alert">{{ message }}</p></ng-template>
     <h1>Consulta de candidaturas</h1>
     <p>
       Dados do
@@ -11,34 +14,55 @@
       vinculados, quando existirem.
     </p>
     <div class="consulta__stats" *ngIf="stats() as s">
-      <span class="pill">{{ s.candidatos | number }} candidatos no banco</span>
-      <span class="pill pill--accent">{{ s.cassacoes | number }} registros de cassação</span>
+      <span class="pill">{{ s.totalCandidatos | number }} candidatos no banco</span>
+      <span class="pill pill--accent">{{ s.totalRegistrosCassacao | number }} registros de cassação</span>
     </div>
+    <p class="consulta__error" *ngIf="statsError() as message" role="alert">{{ message }}</p>
   </header>
 
   <form class="consulta__filters" (ngSubmit)="buscar()">
-    <label class="field">
-      <span>Nome ou nome de urna</span>
-      <input type="search" name="q" [(ngModel)]="filtroNome" placeholder="Ex.: Silva" autocomplete="off" />
-    </label>
-    <label class="field field--sm">
-      <span>UF</span>
-      <select name="uf" [(ngModel)]="filtroUf">
-        <option value="">Todas</option>
-        <option *ngFor="let u of ufs" [value]="u">{{ u }}</option>
-      </select>
-    </label>
-    <label class="field field--sm">
-      <span>Ano</span>
-      <select name="ano" [(ngModel)]="filtroAno">
-        <option [ngValue]="null">Qualquer</option>
-        <option *ngFor="let a of anosEleicao" [ngValue]="a">{{ a }}</option>
-      </select>
-    </label>
-    <label class="checkbox">
-      <input type="checkbox" name="risk" [(ngModel)]="apenasRisco" />
-      <span>Só com alerta (cassação TSE ou situação com “cass”)</span>
-    </label>
+    <div class="consulta__filters-row">
+      <label class="field">
+        <span>Nome ou urna</span>
+        <input type="search" name="q" [(ngModel)]="filtroNome" placeholder="Ex.: Silva" autocomplete="off" />
+      </label>
+      <label class="field field--sm">
+        <span>UF</span>
+        <select name="uf" [(ngModel)]="filtroUf">
+          <option value="">Todas</option>
+          <option *ngFor="let u of ufs" [value]="u">{{ u }}</option>
+        </select>
+      </label>
+      <label class="field field--sm">
+        <span>Ano</span>
+        <select name="ano" [(ngModel)]="filtroAno">
+          <option [ngValue]="null">Qualquer</option>
+          <option *ngFor="let a of anosEleicao" [ngValue]="a">{{ a }}</option>
+        </select>
+      </label>
+    </div>
+    <div class="consulta__filters-row">
+      <label class="field field--sm">
+        <span>Cargo</span>
+        <select name="cargo" [(ngModel)]="filtroCargo">
+          <option value="">Todos</option>
+          <option *ngFor="let cargo of cargos()" [value]="cargo">{{ cargo }}</option>
+        </select>
+      </label>
+      <label class="field field--sm">
+        <span>Partido</span>
+        <select name="partido" [(ngModel)]="filtroPartido">
+          <option value="">Todos</option>
+          <option *ngFor="let partido of partidos()" [value]="partido.sigla">
+            {{ partido.sigla }} · {{ partido.nome }}
+          </option>
+        </select>
+      </label>
+      <label class="checkbox">
+        <input type="checkbox" name="risk" [(ngModel)]="apenasRisco" />
+        <span>Só com alerta (cassação TSE ou situação com “cass”)</span>
+      </label>
+    </div>
     <button type="submit" class="btn btn--primary" [disabled]="loading()">
       {{ loading() ? 'Buscando…' : 'Buscar' }}
     </button>
@@ -104,7 +128,7 @@
         <dd>{{ sel.nomePartido || sel.partido || '—' }}</dd>
       </dl>
       <section class="consulta__cassacoes" *ngIf="cassacoes().length">
-        <h3>Motivos de cassação (TSE)</h3>
+        <h3>Registros de cassação na base do TSE</h3>
         <ul>
           <li *ngFor="let c of cassacoes()">
             <strong>{{ c.tipoMotivo || 'Tipo não informado' }}</strong>

@@ -2,6 +2,7 @@
 export const TSE_CDN = {
   consultaCandidatos: 'https://cdn.tse.jus.br/estatistica/sead/odsele/consulta_cand',
   motivoCassacao: 'https://cdn.tse.jus.br/estatistica/sead/odsele/motivo_cassacao',
+  votacaoCandidatoMunicipio: 'https://cdn.tse.jus.br/estatistica/sead/odsele/votacao_candidato_munzona',
 };
 
 export const TSE_ELECTION_YEAR = {
@@ -52,4 +53,12 @@ export function zipUrlConsultaCandidatos(ano) {
 
 export function zipUrlMotivoCassacao(ano) {
   return `${TSE_CDN.motivoCassacao}/motivo_cassacao_${ano}.zip`;
+}
+
+export function votingCsvEntryName(ano, uf) {
+  return `votacao_candidato_munzona_${ano}_${uf.toUpperCase()}.csv`;
+}
+
+export function zipUrlVotingCandidates(ano) {
+  return `${TSE_CDN.votacaoCandidatoMunicipio}/votacao_candidato_munzona_${ano}.zip`;
 }

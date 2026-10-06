@@ -1,12 +1,80 @@
 <div class="app-shell">
   <header class="app-shell__header">
-    <a routerLink="/" class="app-shell__brand">Eleição Limpa 2026</a>
-    <nav class="app-shell__nav">
-      <a routerLink="/" routerLinkActive="is-active" [routerLinkActiveOptions]="{ exact: true }">Consulta</a>
-      <a routerLink="/sync" routerLinkActive="is-active">Sincronizar</a>
+    <div class="app-shell__identity">
+      <a routerLink="/cruzamento" class="app-shell__brand">
+        <span class="app-shell__mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" focusable="false">
+            <defs>
+              <clipPath id="app-mark-globe">
+                <circle cx="16" cy="16" r="6.1" />
+              </clipPath>
+            </defs>
+            <rect width="32" height="32" fill="#009B3A" />
+            <polygon points="1.5,16 16,6.7 30.5,16 16,25.3" fill="#FEDF00" />
+            <circle cx="16" cy="16" r="6.1" fill="#002776" />
+            <g clip-path="url(#app-mark-globe)" fill="#FFFFFF">
+              <path
+                d="M -2.36 28.24 A 14.86 14.86 0 0 1 27.36 28.24 L 26.2 28.24 A 13.7 13.7 0 0 0 -1.2 28.24 Z"
+              />
+            </g>
+          </svg>
+        </span>
+        <span>Eleição Limpa - <strong>Brasil</strong></span>
+      </a>
+      <span class="app-shell__descriptor">Dados públicos para análise cidadã</span>
+    </div>
+    <nav class="app-shell__nav" aria-label="Navegação principal">
+      <a routerLink="/cruzamento" routerLinkActive="is-active" [routerLinkActiveOptions]="{ exact: true }">Análises</a>
+      <a routerLink="/consulta" routerLinkActive="is-active">Candidaturas</a>
+      <a routerLink="/sync" routerLinkActive="is-active">Atualizar dados</a>
+      <a routerLink="/tutorial" routerLinkActive="is-active">Tutorial</a>
     </nav>
   </header>
   <main class="app-shell__main">
     <router-outlet />
   </main>
+  <footer class="app-shell__footer">
+    <span>Projeto independente, sem vínculo institucional com o TSE.</span>
+    <span>Fontes identificadas em cada análise · TSE e IBGE</span>
+  </footer>
 </div>
+
+@if (showTutorialIntro()) {
+  <div class="tutorial-intro" (click)="closeTutorialIntro()" role="presentation">
+    <div
+      class="tutorial-intro__dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="tutorial-intro-title"
+      (click)="$event.stopPropagation()"
+    >
+      <button
+        type="button"
+        class="tutorial-intro__close"
+        aria-label="Fechar aviso"
+        title="Fechar"
+        (click)="closeTutorialIntro()"
+      >
+        ×
+      </button>
+      <span class="tutorial-intro__badge">Novo por aqui?</span>
+      <h2 id="tutorial-intro-title">Bem-vindo(a) ao Eleição Limpa - Brasil</h2>
+      <p>
+        Esta aplicação consulta candidaturas e cruza votações do TSE com indicadores do IBGE,
+        usando apenas dados públicos oficiais.
+      </p>
+      <p>
+        Preparamos um <strong>manual passo a passo</strong> com o uso de cada área da aplicação.
+        Ele fica disponível a qualquer momento na aba <strong>Tutorial</strong> da barra superior.
+      </p>
+      <div class="tutorial-intro__actions">
+        <button type="button" class="btn btn--primary" (click)="goToTutorial()">
+          Ir para o tutorial
+        </button>
+        <button type="button" class="btn btn--ghost" (click)="closeTutorialIntro()">
+          Agora não
+        </button>
+      </div>
+    </div>
+  </div>
+}

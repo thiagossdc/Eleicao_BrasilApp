@@ -1,0 +1,281 @@
+<section class="cruzamento">
+  <header class="cruzamento__intro">
+    <div>
+      <p class="cruzamento__eyebrow">Projeto independente · dados do TSE + IBGE</p>
+      <h1>{{ tituloAnalise() }}</h1>
+      <p>Compare resultados do TSE com fatores demográficos, econômicos, educacionais e de infraestrutura do IBGE. Escolha um alvo e explore os padrões municipais, sem precisar enviar arquivos.</p>
+    </div>
+    <span class="source-status" *ngIf="result() && !loadingResult()"><i></i> Fontes consultadas</span>
+  </header>
+
+  <form class="cruzamento__filters" (ngSubmit)="carregarCruzamento()">
+    <label class="field field--sm">
+      <span>Eleição</span>
+      <select name="ano" [(ngModel)]="ano" (ngModelChange)="carregarCatalogo()">
+        <option *ngFor="let year of anos" [ngValue]="year">{{ year }}</option>
+      </select>
+    </label>
+    <label class="field field--sm">
+      <span>Abrangência</span>
+      <select name="uf" [(ngModel)]="uf" (ngModelChange)="carregarCatalogo()">
+        <option *ngFor="let state of ufs" [value]="state">{{ state === 'BRASIL' ? 'Brasil inteiro' : state }}</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>Cargo</span>
+      <select name="cargo" [(ngModel)]="cargo" (ngModelChange)="filtrosMudaram()" [disabled]="!cargos().length">
+        <option *ngFor="let office of cargos()" [value]="office">{{ office }}</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>Tipo de análise</span>
+      <select name="modoAnalise" [(ngModel)]="modoAnalise" (ngModelChange)="mudarModoAnalise()">
+        <option value="candidato">Por candidato</option>
+        <option value="partido">Por partido</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>Partido{{ modoAnalise === 'candidato' ? ' · filtro opcional' : '' }}</span>
+      <select name="partido" [(ngModel)]="partido" (ngModelChange)="mudarPartido()" [disabled]="!partyOptions().length">
+        <option *ngIf="modoAnalise === 'candidato'" value="TODOS">Todos os partidos</option>
+        <option *ngFor="let party of partyOptions()" [value]="party.sigla">
+          {{ party.sigla }} · {{ party.candidatos }} {{ party.candidatos === 1 ? 'candidato' : 'candidatos' }} · {{ party.votos | number }} votos
+        </option>
+      </select>
+    </label>
+    <label class="field" *ngIf="modoAnalise === 'candidato'">
+      <span>Filtrar candidatos</span>
+      <input name="candidatoFiltro" type="search" [(ngModel)]="candidatoFiltro" (ngModelChange)="filtrarCandidatos()"
+        placeholder="Digite nome ou sigla" autocomplete="off" />
+      <small *ngIf="loadingCandidates()" aria-live="polite">Buscando candidatos…</small>
+    </label>
+    <label class="field field--candidate" *ngIf="modoAnalise === 'candidato'">
+      <span>Candidato</span>
+      <select name="candidato" [(ngModel)]="candidato" (ngModelChange)="mudarCandidato()" [disabled]="!candidateOptions().length">
+        <option value="">Selecione um candidato</option>
+        <option *ngFor="let candidate of candidateOptions()" [value]="candidate.sqCandidato">
+          {{ candidate.nome }}{{ candidate.partido ? ' · ' + candidate.partido : '' }} · {{ candidate.votos | number }} votos
+        </option>
+      </select>
+      <small *ngIf="availableCandidateCount() > candidateOptions().length && !candidatoFiltro">
+        Exibindo os 100 mais votados de {{ availableCandidateCount() | number }}. Use o filtro para localizar outros nomes.
+      </small>
+    </label>
+    <label class="field">
+      <span>Indicador do IBGE</span>
+      <select name="indicador" [(ngModel)]="indicador" (ngModelChange)="selecionarIndicador()">
+        <optgroup *ngFor="let group of gruposIndicadores" [label]="group.name">
+          <option *ngFor="let option of group.items" [value]="option.key">{{ option.name }}</option>
+        </optgroup>
+      </select>
+    </label>
+  </form>
+
+  <details class="filter-details">
+    <summary><span>Refinar análise</span><small>Turno e escala</small></summary>
+    <div class="filter-details__grid">
+      <label class="field field--sm">
+        <span>Turno</span>
+        <select name="turno" [(ngModel)]="turno" (ngModelChange)="filtrosMudaram()" [disabled]="!turnos().length">
+          <option *ngFor="let round of turnos()" [ngValue]="round">{{ round }}º</option>
+        </select>
+      </label>
+      <label class="field field--sm">
+        <span>Escala do gráfico</span>
+        <select name="escala" [ngModel]="logScale()" (ngModelChange)="logScale.set($event)">
+          <option [ngValue]="false">Linear</option>
+          <option [ngValue]="true">Logarítmica</option>
+        </select>
+      </label>
+    </div>
+  </details>
+
+  <p class="cruzamento__error" *ngIf="error() as message" role="alert">{{ message }}</p>
+  <p class="cruzamento__loading" *ngIf="loadingCatalog()" aria-live="polite">Consultando resultados oficiais do TSE para {{ nomeAbrangencia() }}…</p>
+  <p class="cruzamento__loading" *ngIf="loadingResult()" aria-live="polite">Preparando a comparação municipal com dados do TSE e do IBGE…</p>
+  <section class="cruzamento__loading" *ngIf="hasLoadedCatalog() && !result() && !loadingResult() && modoAnalise === 'candidato' && !error()" aria-live="polite">
+    <strong>Escolha um candidato para ver o mapa</strong>
+    <p>O mapa municipal será exibido com os resultados e os indicadores do IBGE após a seleção. Nenhum candidato é escolhido automaticamente.</p>
+  </section>
+
+  <ng-container *ngIf="result() as data">
+    <p class="cruzamento__target">
+      {{ data.alvo.tipo === 'partido' ? 'Análise por partido' : 'Análise por candidato' }}:
+      <strong>{{ data.alvo.nome }}</strong>
+      <span *ngIf="data.alvo.tipo === 'candidato' && data.alvo.partido">· {{ data.alvo.partido }}</span>
+    </p>
+    <section class="cruzamento__meta" aria-label="Resumo da análise">
+      <span><strong>{{ analyzedPoints().length | number }}</strong> {{ analyzedPoints().length === 1 ? 'município analisado' : 'municípios analisados' }}</span>
+      <span><strong>{{ data.cobertura.municipiosComDados | number }}</strong> {{ data.cobertura.municipiosComDados === 1 ? 'município com indicador' : 'municípios com indicador' }}</span>
+      <span *ngIf="stats() as summary"><strong>r {{ summary.r | number: '1.0-2' }}</strong> correlação de Pearson{{ logScale() ? ' · escala log10' : '' }}</span>
+    </section>
+    <p class="analysis-warning" *ngIf="analyzedPoints().length < 3">
+      Este recorte tem {{ analyzedPoints().length }} {{ analyzedPoints().length === 1 ? 'município' : 'municípios' }} com dados para {{ data.alvo.tipo === 'partido' ? 'o partido' : 'o candidato' }} selecionado. Gráficos comparativos precisam de pelo menos três observações.
+    </p>
+
+    <nav class="visual-tabs" aria-label="Visualizações da análise">
+      <button type="button" [class.is-active]="activeView() === 'map'" [attr.aria-pressed]="activeView() === 'map'" (click)="selecionarVisualizacao('map')">Mapa</button>
+      <button type="button" [class.is-active]="activeView() === 'overview'" [attr.aria-pressed]="activeView() === 'overview'" (click)="selecionarVisualizacao('overview')">Comparar fatores</button>
+      <button type="button" [class.is-active]="activeView() === 'scatter'" [attr.aria-pressed]="activeView() === 'scatter'" (click)="selecionarVisualizacao('scatter')">Dispersão</button>
+      <button type="button" [class.is-active]="activeView() === 'patterns'" [attr.aria-pressed]="activeView() === 'patterns'" (click)="selecionarVisualizacao('patterns')">Barras por faixa</button>
+    </nav>
+
+    <section class="result-panel factor-overview" [hidden]="activeView() !== 'overview'">
+      <div class="patterns-panel__heading">
+        <div>
+          <h2>Como o percentual de votos varia com cada fator?</h2>
+          <p class="result-panel__muted">Comparações municipais exploratórias. Escolha um fator para abrir o gráfico detalhado; mudar de fator não faz nova consulta.</p>
+        </div>
+      </div>
+      <p class="factor-overview__summary"><strong>Leitura simples:</strong> {{ resumoRelacao() }} É uma associação entre municípios, não uma explicação do voto de cada pessoa.</p>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Dimensão</th><th>Fator</th><th>Municípios</th><th>Associação linear (r)</th><th></th></tr></thead>
+          <tbody>
+            <tr *ngFor="let factor of factorAnalyses()">
+              <td>{{ factor.indicator.grupo }}</td>
+              <td>{{ factor.indicator.nome }} <small>SIDRA {{ factor.indicator.agregado }} · {{ factor.indicator.periodo }} · {{ factor.indicator.unidade }}</small></td>
+              <td>{{ factor.n | number }}</td>
+              <td>{{ factor.stats ? (factor.stats.r | number: '1.0-3') : '—' }}</td>
+              <td><button type="button" class="factor-overview__action" (click)="selecionarFator(factor.key)">Ver gráfico</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="result-panel__source">As linhas são comparações de um fator por vez (correlação bivariada); não controlam os demais fatores nem demonstram causalidade.</p>
+    </section>
+
+    <section class="result-panel map-panel" [hidden]="activeView() !== 'map'">
+      <div class="map-panel__heading">
+        <div>
+          <h2>{{ nomeAbrangencia() }} · votação por município</h2>
+          <p class="result-panel__muted">{{ nomeIndicador() }} · selecione um município para ver os valores</p>
+        </div>
+        <span class="map-panel__coverage">{{ data.cobertura.municipiosComDados | number }} {{ data.cobertura.municipiosComDados === 1 ? 'município' : 'municípios' }}</span>
+      </div>
+      <p class="cruzamento__error" *ngIf="mapError() as message" role="alert">{{ message }}</p>
+      <p class="result-panel__muted" *ngIf="mapLoading()">Carregando mapa do IBGE…</p>
+      <div #municipalMap class="municipal-map" role="img" [attr.aria-label]="'Mapa de ' + nomeAbrangencia() + ' colorido por ' + nomeIndicador()"></div>
+      <div class="map-legend" aria-label="Legenda do indicador">
+        <span *ngFor="let index of [0, 1, 2, 3, 4]"><i [style.background-color]="corFaixaLegenda(index)"></i>{{ faixaLegenda(index) }}</span>
+        <span><i class="map-legend__empty"></i>Sem dados</span>
+      </div>
+    </section>
+
+    <section class="cruzamento__results" [hidden]="activeView() !== 'scatter'">
+      <section class="result-panel result-panel--plot">
+        <div class="map-panel__heading">
+          <div>
+            <h2>Votação e {{ nomeIndicador() | lowercase }}</h2>
+            <p class="result-panel__muted">Cada ponto representa um município. Passe sobre os pontos para ver detalhes.</p>
+          </div>
+          <span *ngIf="stats() as summary">r {{ summary.r | number: '1.0-2' }}</span>
+        </div>
+        <svg viewBox="0 0 720 360" role="img" [attr.aria-label]="'Dispersão de ' + nomeIndicador() + ' e percentual de votos nominais'">
+          <line x1="58" y1="292" x2="688" y2="292" class="chart-axis" />
+          <line x1="58" y1="42" x2="58" y2="292" class="chart-axis" />
+          <line *ngIf="plotPoints().line as line" [attr.x1]="line.x1" [attr.y1]="line.y1" [attr.x2]="line.x2" [attr.y2]="line.y2" class="chart-trend" />
+          <circle *ngFor="let point of plotPoints().dots" [attr.cx]="point.cx" [attr.cy]="point.cy" r="3.5" class="chart-dot">
+            <title>{{ point.municipio }}: {{ point.percentualVotos | number: '1.0-2' }}%</title>
+          </circle>
+          <text x="370" y="344" text-anchor="middle" class="chart-label">{{ nomeIndicador() }}{{ logScale() ? ' (log10)' : '' }}</text>
+          <text x="16" y="168" text-anchor="middle" class="chart-label" transform="rotate(-90 16 168)">% dos votos</text>
+        </svg>
+      </section>
+    </section>
+
+    <section class="result-panel bar-chart-panel" [hidden]="activeView() !== 'scatter'">
+      <div class="bar-chart-panel__heading">
+        <div>
+          <h2>Média de votos por faixa do indicador</h2>
+          <p class="result-panel__muted">Cada barra mostra a média do percentual de votos dos municípios de uma faixa do indicador. As barras vão da menor medida (esquerda) para a maior (direita).</p>
+        </div>
+        <span class="bar-chart-panel__summary" *ngIf="barChartPlan().bars.length">{{ barChartPlan().bars.length }} faixas · {{ analyzedPoints().length }} municípios</span>
+      </div>
+      <svg viewBox="0 0 720 400" role="img" [attr.aria-label]="'Gráfico de barras: média de votos por faixa de ' + nomeIndicador()">
+        <line *ngFor="let line of barChartPlan().gridlines" [attr.x1]="22" [attr.y1]="line.y" [attr.x2]="698" [attr.y2]="line.y" class="bar-chart__gridline" />
+        <line x1="22" y1="360" x2="698" y2="360" class="bar-chart__x-axis" />
+        <line x1="22" y1="16" x2="22" y2="360" class="bar-chart__y-axis" />
+        <text *ngFor="let line of barChartPlan().gridlines" [attr.x]="16" [attr.y]="line.y + 4" text-anchor="end" class="bar-chart__ylabel">{{ line.value | number: '1.0-1' }}%</text>
+        <text *ngFor="let bar of barChartPlan().bars; let i = index" [attr.x]="bar.px + bar.pw / 2" [attr.y]="378" text-anchor="middle" class="bar-chart__xlabel">{{ bar.label }}</text>
+        <rect *ngFor="let bar of barChartPlan().bars; let i = index" [attr.x]="bar.px" [attr.y]="bar.pTop" [attr.width]="bar.pw" [attr.height]="bar.ph" class="bar-chart__bar" [attr.fill]="barChartColor(i)" />
+        <text *ngFor="let bar of barChartPlan().bars; let i = index" [attr.x]="bar.px + bar.pw / 2" [attr.y]="bar.pTop - 6" text-anchor="middle" class="bar-chart__value">{{ bar.mean | number: '1.0-1' }}%</text>
+        <line *ngIf="barChartPlan().bars.length" [attr.x1]="22" [attr.y1]="barChartPlan().overallMeanY" [attr.x2]="698" [attr.y2]="barChartPlan().overallMeanY" class="bar-chart__avgline" />
+        <text x="360" y="14" text-anchor="middle" class="bar-chart__title">{{ nomeIndicador() }} × % dos votos nominais</text>
+        <text x="360" y="28" text-anchor="middle" class="bar-chart__muted">{{ logScale() ? 'Escala log10' : 'Escala linear' }}</text>
+      </svg>
+      <div class="bar-chart__legend" *ngIf="barChartPlan().bars.length">
+        <span class="bar-chart__legend-item">
+          <span class="bar-chart__legend-line"></span>
+          <span>Média geral: {{ barChartPlan().overallMeanValue | number: '1.0-1' }}%</span>
+        </span>
+      </div>
+      <p class="result-panel__muted bar-chart-panel__footnote">Cada barra é a média do percentual de votos de todos os municípios dentro daquela faixa do indicador. Nenhuma barra representa um candidato, partido ou eleitor isolado.</p>
+      <p class="result-panel__muted" *ngIf="!barChartPlan().bars.length">São necessários ao menos cinco municípios com dados para calcular a média de votos por faixa do indicador. Ajuste o filtro ou escolha outro indicador.</p>
+    </section>
+
+    <section class="result-panel patterns-panel" [hidden]="activeView() !== 'patterns'">
+      <div class="patterns-panel__heading">
+        <div>
+          <h2>Compare os percentuais de votos</h2>
+          <p class="result-panel__muted">Municípios organizados em cinco faixas, da menor à maior medida de {{ nomeIndicador() | lowercase }}. Cada barra mostra a média do percentual de votos naquela faixa.</p>
+        </div>
+      </div>
+      <p class="cruzamento__loading" *ngIf="quintileSummary() as summary"><strong>Resumo:</strong> {{ summary }} São médias municipais, não resultados de cada eleitor.</p>
+      <div class="quintile-bars" *ngIf="quintiles().length; else noQuintiles">
+        <div class="quintile-bar" *ngFor="let group of quintiles()">
+          <div class="quintile-bar__label"><strong>{{ group.label }} <span *ngIf="group.position">· {{ group.position }}</span></strong><span>{{ group.range }} · {{ group.count | number }} municípios</span></div>
+          <div class="quintile-bar__track" role="progressbar" [attr.aria-label]="'Média de votos na ' + group.label" aria-valuemin="0" [attr.aria-valuemax]="maxQuintileVote()" [attr.aria-valuenow]="group.mean"><i [style.width.%]="group.mean / maxQuintileVote() * 100"></i></div>
+          <strong class="quintile-bar__value">{{ group.mean | number: '1.0-2' }}%</strong>
+        </div>
+      </div>
+      <p class="result-panel__muted" *ngIf="quintiles().length">A escala vai de 0% até {{ maxQuintileVote() | number: '1.0-2' }}% (maior média observada). O valor exato de cada grupo aparece ao lado da barra.</p>
+      <ng-template #noQuintiles><p class="result-panel__muted">São necessários ao menos cinco municípios para formar faixas comparáveis.</p></ng-template>
+      <div class="table-wrap patterns-panel__table">
+        <table class="data-table">
+          <thead><tr><th>Faixa do indicador</th><th>Intervalo</th><th>Municípios</th><th>Média do percentual de votos</th></tr></thead>
+          <tbody><tr *ngFor="let group of quintiles()"><td>{{ group.label }}<span *ngIf="group.position"> · {{ group.position }}</span></td><td>{{ group.range }}</td><td>{{ group.count | number }}</td><td>{{ group.mean | number: '1.0-2' }}%</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <details class="analysis-details">
+      <summary>Metodologia e estatísticas</summary>
+      <dl class="stats-list" *ngIf="stats() as summary; else insufficientData">
+        <dt>Municípios na correlação (n)</dt><dd>{{ summary.n | number }}</dd>
+        <dt>Correlação de Pearson (r)</dt><dd>{{ summary.r | number: '1.0-4' }}</dd>
+        <dt>R²</dt><dd>{{ summary.r2 | number: '1.0-4' }}</dd>
+        <dt>p-valor nominal (exploratório)</dt><dd>{{ summary.p < 0.0001 ? '< 0,0001' : (summary.p | number: '1.0-4') }}</dd>
+        <dt>Inclinação{{ logScale() ? ' (por unidade de log10)' : '' }}</dt><dd>{{ summary.slope | number: '1.0-4' }} p.p./unidade</dd>
+      </dl>
+      <ng-template #insufficientData><p class="result-panel__muted">São necessários ao menos três municípios com dados válidos para calcular a correlação.</p></ng-template>
+      <p class="cruzamento__guardrail">Análise exploratória: correlação não implica causalidade. O p-valor convencional pressupõe observações independentes; municípios próximos podem compartilhar características, então ele não deve ser lido isoladamente como prova de associação. R² descreve a variação explicada por uma relação linear neste recorte, não causalidade. Os dados são agregados por município e não permitem inferir comportamento individual. As barras comparam médias de municípios agrupados por indicador; não representam a distribuição de votos entre pessoas. Na análise por partido, somam-se os votos dos candidatos da sigla em cada município; o denominador é o total nominal, não o total de votos válidos. Censo: 2022; PIB: último período publicado pelo IBGE.</p>
+      <p class="result-panel__source">IBGE · SIDRA {{ data.indicador.agregado }}: {{ data.indicador.variavel }} · {{ data.indicador.periodo }} · {{ data.indicador.unidade }}</p>
+      <p class="result-panel__source" *ngIf="data.indicador.nota">{{ data.indicador.nota }}</p>
+      <p class="result-panel__source">Malha municipal do IBGE. Correspondência por UF e nome normalizado do município.</p>
+    </details>
+
+    <details class="assistant-panel">
+      <summary><span>Tira-dúvidas</span><small>{{ assistantEnabled() ? 'Sobre dados e metodologia' : 'Opcional · indisponível nesta configuração' }}</small></summary>
+      <p class="assistant-panel__notice" *ngIf="assistantEnabled(); else assistantUnavailable">Não envie dados pessoais. No nível gratuito do Gemini, perguntas podem ser usadas pelo Google para melhorar produtos.</p>
+      <ng-template #assistantUnavailable>
+        <p class="assistant-panel__notice" *ngIf="assistantStatusError() as statusError" role="alert">{{ statusError }}</p>
+        <p class="assistant-panel__notice" *ngIf="assistantStatusLoaded() && !assistantStatusError()">Configure a chave Gemini no servidor para habilitar as respostas.</p>
+        <p class="assistant-panel__notice" *ngIf="!assistantStatusLoaded()">Verificando disponibilidade…</p>
+      </ng-template>
+      <div class="assistant-panel__messages" *ngIf="assistantMessages().length" aria-live="polite">
+        <p *ngFor="let message of assistantMessages()" [class.assistant-message--user]="message.role === 'user'"><strong>{{ message.role === 'user' ? 'Você' : 'Assistente' }}:</strong> {{ message.text }}</p>
+      </div>
+      <p class="cruzamento__error" *ngIf="assistantError() as message" role="alert">{{ message }}</p>
+      <form class="assistant-panel__form" (ngSubmit)="perguntarAssistente()">
+        <label class="field" for="assistant-question"><span>Sua pergunta</span><input id="assistant-question" name="assistantQuestion" [(ngModel)]="assistantQuestion" maxlength="500" autocomplete="off" placeholder="Ex.: como interpretar a correlação?" [disabled]="!assistantEnabled() || assistantLoading()" /></label>
+        <button type="submit" class="btn btn--primary" [disabled]="!assistantEnabled() || assistantLoading() || !assistantQuestion.trim()">{{ assistantLoading() ? 'Respondendo…' : 'Perguntar' }}</button>
+      </form>
+    </details>
+
+    <footer class="cruzamento__sources">
+      <span>Fontes</span><a [href]="data.fontes.tse" target="_blank" rel="noopener">TSE</a><a [href]="data.fontes.ibge" target="_blank" rel="noopener">IBGE</a>
+      <span>Consulta automática · nenhum arquivo para importar</span>
+    </footer>
+  </ng-container>
+</section>

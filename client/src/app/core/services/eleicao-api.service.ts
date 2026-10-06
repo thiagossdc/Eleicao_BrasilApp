@@ -1,10 +1,16 @@
-import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import type {
   CandidateDetailResponse,
   CandidateListResponse,
+  AssistantAnswerResponse,
+  AssistantStatusResponse,
+  CrossingCatalogResponse,
+  CrossingCandidatesResponse,
+  CrossingResultResponse,
   DatasetStats,
+  MunicipalMapResponse,
   SyncResponse,
 } from '../models/candidate.models';
 
@@ -13,6 +19,8 @@ export interface CandidateSearchParams {
   uf?: string;
   ano?: number;
   onlyRisk?: boolean;
+  cargo?: string;
+  partido?: string;
   limit?: number;
   offset?: number;
 }
@@ -32,6 +40,8 @@ export class EleicaoApiService {
     if (params.q?.trim()) httpParams = httpParams.set('q', params.q.trim());
     if (params.uf?.trim()) httpParams = httpParams.set('uf', params.uf.trim().toUpperCase());
     if (params.ano != null) httpParams = httpParams.set('ano', String(params.ano));
+    if (params.cargo) httpParams = httpParams.set('cargo', params.cargo);
+    if (params.partido) httpParams = httpParams.set('partido', params.partido);
     if (params.onlyRisk) httpParams = httpParams.set('onlyRisk', 'true');
     if (params.limit != null) httpParams = httpParams.set('limit', String(params.limit));
     if (params.offset != null) httpParams = httpParams.set('offset', String(params.offset));
@@ -39,15 +49,87 @@ export class EleicaoApiService {
     return this.http.get<CandidateListResponse>(`${this.apiPrefix}/candidates`, { params: httpParams });
   }
 
+  getCandidateFilters(): Observable<{
+    cargos: string[];
+    partidos: { sigla: string; nome: string }[];
+  }> {
+    return this.http.get<{
+      cargos: string[];
+      partidos: { sigla: string; nome: string }[];
+    }>(`${this.apiPrefix}/candidates/options`);
+  }
+
   getCandidateDetail(sqCandidato: string, uf: string, ano: number): Observable<CandidateDetailResponse> {
     const params = new HttpParams().set('uf', uf).set('ano', String(ano));
     return this.http.get<CandidateDetailResponse>(`${this.apiPrefix}/candidates/${sqCandidato}`, { params });
   }
 
-  syncTse(body: { ano: number; uf: string }, syncToken?: string): Observable<SyncResponse> {
-    const token = syncToken?.trim();
-    return this.http.post<SyncResponse>(`${this.apiPrefix}/sync`, body, {
-      headers: token ? new HttpHeaders({ Authorization: `Bearer ${token}` }) : undefined,
-    });
+  syncTse(body: { ano: number; uf: string }): Observable<SyncResponse> {
+    return this.http.post<SyncResponse>(`${this.apiPrefix}/sync`, body);
+  }
+
+  getCrossingCatalog(ano: number, uf: string): Observable<CrossingCatalogResponse> {
+    const params = new HttpParams().set('ano', String(ano)).set('uf', uf);
+    return this.http.get<CrossingCatalogResponse>(`${this.apiPrefix}/crossings/options`, { params });
+  }
+
+  getCrossingCandidates(params: {
+    ano: number;
+    uf: string;
+    cargo: string;
+    turno: number;
+    partido?: string;
+    busca?: string;
+  }): Observable<CrossingCandidatesResponse> {
+    let httpParams = new HttpParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value) httpParams = httpParams.set(key, String(value));
+    }
+    return this.http.get<CrossingCandidatesResponse>(`${this.apiPrefix}/crossings/candidates`, { params: httpParams });
+  }
+
+  getCrossingResults(params: {
+    ano: number;
+    uf: string;
+    cargo: string;
+    turno: number;
+    candidato: string;
+    indicador: string;
+  }): Observable<CrossingResultResponse> {
+    let httpParams = new HttpParams();
+    for (const [key, value] of Object.entries(params)) {
+      httpParams = httpParams.set(key, String(value));
+    }
+    return this.http.get<CrossingResultResponse>(`${this.apiPrefix}/crossings`, { params: httpParams });
+  }
+
+  getPartyCrossingResults(params: {
+    ano: number;
+    uf: string;
+    cargo: string;
+    turno: number;
+    partido: string;
+    indicador: string;
+  }): Observable<CrossingResultResponse> {
+    let httpParams = new HttpParams();
+    for (const [key, value] of Object.entries(params)) {
+      httpParams = httpParams.set(key, String(value));
+    }
+    return this.http.get<CrossingResultResponse>(`${this.apiPrefix}/crossings/party`, { params: httpParams });
+  }
+
+  getMunicipalMap(uf: string): Observable<MunicipalMapResponse> {
+    return this.http.get<MunicipalMapResponse>(`${this.apiPrefix}/crossings/map/${uf}`);
+  }
+
+  getAssistantStatus(): Observable<AssistantStatusResponse> {
+    return this.http.get<AssistantStatusResponse>(`${this.apiPrefix}/assistant/status`);
+  }
+
+  askCrossingAssistant(
+    question: string,
+    context: Record<string, string | number | null>,
+  ): Observable<AssistantAnswerResponse> {
+    return this.http.post<AssistantAnswerResponse>(`${this.apiPrefix}/assistant`, { question, context });
   }
 }

@@ -7,5 +7,5 @@ import { env } from './config/env.js';
 const app = createApp();
 
 app.listen(env.port, () => {
-  console.log(`API eleição limpa ouvindo em http://localhost:${env.port}`);
+  console.log(`API Eleição Limpa - Brasil ouvindo em http://localhost:${env.port}`);
 });

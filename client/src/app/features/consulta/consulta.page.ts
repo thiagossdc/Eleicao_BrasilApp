@@ -10,7 +10,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { finalize } from 'rxjs/operators';
 import { BRAZIL_UFS } from '../../core/constants/brazil-ufs';
-import type { CandidateListItem } from '../../core/models/candidate.models';
+import type { CandidateListItem, DatasetStats } from '../../core/models/candidate.models';
 import { EleicaoApiService } from '../../core/services/eleicao-api.service';
 
 @Component({
@@ -25,14 +25,21 @@ export class ConsultaPageComponent implements OnInit {
   private readonly api = inject(EleicaoApiService);
 
   readonly ufs = BRAZIL_UFS;
-  readonly anosEleicao = [2024, 2022, 2020, 2018, 2016, 2014];
+  readonly anosEleicao = [2026, 2024, 2022, 2020, 2018, 2016, 2014];
 
   filtroNome = '';
   filtroUf = '';
   filtroAno: number | null = 2022;
   apenasRisco = false;
 
-  readonly stats = signal({ candidatos: 0, cassacoes: 0 });
+  filtroCargo = '';
+  filtroPartido = '';
+
+  readonly cargos = signal<string[]>([]);
+  readonly partidos = signal<{ sigla: string; nome: string }[]>([]);
+
+  readonly stats = signal<Pick<DatasetStats, 'totalCandidatos' | 'totalRegistrosCassacao'> | null>(null);
+  readonly statsError = signal<string | null>(null);
   readonly items = signal<CandidateListItem[]>([]);
   readonly total = signal(0);
   readonly loading = signal(false);
@@ -47,12 +54,21 @@ export class ConsultaPageComponent implements OnInit {
 
   ngOnInit(): void {
     this.api.getStats().subscribe({
-      next: (s) =>
-        this.stats.set({
-          candidatos: s.totalCandidatos,
-          cassacoes: s.totalRegistrosCassacao,
-        }),
-      error: () => this.stats.set({ candidatos: 0, cassacoes: 0 }),
+      next: (stats) => {
+        this.stats.set(stats);
+        this.statsError.set(null);
+      },
+      error: () => this.statsError.set('Não foi possível carregar o resumo da base. Tente atualizar a página.'),
+    });
+
+    this.api.getCandidateFilters().subscribe({
+      next: (filters) => {
+        this.cargos.set(filters.cargos ?? []);
+        this.partidos.set(filters.partidos ?? []);
+      },
+      error: () => {
+        // O filtro continua funcional mesmo se as opções não carregarem.
+      },
     });
   }
 
@@ -67,6 +83,8 @@ export class ConsultaPageComponent implements OnInit {
       .searchCandidates({
         q: this.filtroNome || undefined,
         uf: this.filtroUf || undefined,
+        cargo: this.filtroCargo || undefined,
+        partido: this.filtroPartido || undefined,
         ano: this.filtroAno ?? undefined,
         onlyRisk: this.apenasRisco,
         limit: 50,

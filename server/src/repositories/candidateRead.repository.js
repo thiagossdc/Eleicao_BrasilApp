@@ -25,6 +25,16 @@ function buildSearchFilters(filters) {
     params.push(filters.uf.toUpperCase());
   }
 
+  if (filters.cargo) {
+    parts.push('c.ds_cargo = ?');
+    params.push(filters.cargo.toUpperCase());
+  }
+
+  if (filters.partido) {
+    parts.push('c.sg_partido = ?');
+    params.push(filters.partido.toUpperCase());
+  }
+
   const term = filters.nomeOuUrna?.trim();
   if (term) {
     const pattern = `%${term.toLowerCase()}%`;
@@ -74,6 +84,20 @@ export function listCandidates(opts) {
 /**
  * @param {{ nomeOuUrna?: string, uf?: string, ano?: number, onlyRisk?: boolean }} filters
  */
+export function listCandidateFilters() {
+  const cargosRows = db
+    .prepare(`SELECT DISTINCT ds_cargo AS cargo FROM candidates WHERE ds_cargo IS NOT NULL AND ds_cargo <> '' ORDER BY cargo`)
+    .all();
+  const cargos = cargosRows.map((row) => row.cargo);
+
+  const partidosRows = db
+    .prepare(`SELECT DISTINCT sg_partido AS sigla, nm_partido AS nome FROM candidates WHERE sg_partido IS NOT NULL AND sg_partido <> '' ORDER BY nm_partido, sigla`)
+    .all();
+  const partidos = partidosRows.map((row) => ({ sigla: row.sigla, nome: row.nome }));
+
+  return { cargos, partidos };
+}
+
 export function countCandidates(filters) {
   const { whereClause, params } = buildSearchFilters(filters);
   const row = db.prepare(`SELECT COUNT(*) AS n FROM candidates c WHERE ${whereClause}`).get(...params);

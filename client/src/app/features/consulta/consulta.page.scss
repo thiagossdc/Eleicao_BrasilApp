@@ -34,7 +34,6 @@
 
 .consulta__filters {
   display: grid;
-  grid-template-columns: 1fr minmax(5rem, 7rem) minmax(6rem, 8rem);
   gap: 1rem;
   align-items: end;
   margin: 2rem 0 1rem;
@@ -44,8 +43,27 @@
   border: 1px solid var(--color-border);
 }
 
+.consulta__filters-row {
+  display: grid;
+  grid-template-columns: 1fr minmax(5rem, 7rem) minmax(6rem, 8rem);
+  gap: 1rem;
+}
+
+.consulta__filters-row:last-child {
+  margin-bottom: 0;
+}
+
+.consulta__filters .btn--primary {
+  width: 100%;
+  justify-self: start;
+}
+
 @media (max-width: 768px) {
   .consulta__filters {
+    grid-template-columns: 1fr;
+  }
+
+  .consulta__filters-row {
     grid-template-columns: 1fr;
   }
 }
@@ -60,6 +78,7 @@
 
 .field input,
 .field select {
+  width: 100%;
   font: inherit;
   padding: 0.55rem 0.65rem;
   border-radius: var(--radius-md);
@@ -104,6 +123,10 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 0.875rem;
+}
+
+.consulta__table-wrap {
+  overflow-x: auto;
 }
 
 .data-table th,

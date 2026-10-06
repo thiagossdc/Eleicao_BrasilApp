@@ -17,11 +17,10 @@ export class SyncPageComponent {
   private readonly api = inject(EleicaoApiService);
 
   readonly ufs = [...BRAZIL_UFS];
-  readonly anos = [2024, 2022, 2020, 2018];
+  readonly anos = [2026, 2024, 2022, 2020, 2018];
 
   ano = 2022;
   uf = 'SP';
-  syncToken = '';
 
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
@@ -37,7 +36,7 @@ export class SyncPageComponent {
     this.loading.set(true);
 
     this.api
-      .syncTse({ ano: this.ano, uf: this.uf }, this.syncToken || undefined)
+      .syncTse({ ano: this.ano, uf: this.uf })
       .pipe(finalize(() => this.loading.set(false)))
       .subscribe({
         next: (res) => {

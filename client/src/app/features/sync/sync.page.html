@@ -19,16 +19,6 @@
         <option *ngFor="let u of ufs" [value]="u">{{ u }}</option>
       </select>
     </label>
-    <label class="field field--wide">
-      <span>Token (opcional)</span>
-      <input
-        type="password"
-        name="token"
-        [(ngModel)]="syncToken"
-        placeholder="Só se o servidor tiver SYNC_TOKEN configurado"
-        autocomplete="off"
-      />
-    </label>
     <button type="submit" class="btn btn--primary" [disabled]="loading()">
       {{ loading() ? 'Sincronizando…' : 'Iniciar importação' }}
     </button>

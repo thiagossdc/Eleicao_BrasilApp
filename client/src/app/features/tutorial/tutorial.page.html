@@ -1,0 +1,58 @@
+<section class="tutorial">
+  <header class="tutorial__intro">
+    <p class="tutorial__eyebrow">Manual de uso</p>
+    <h1>Como usar o Eleição Limpa - Brasil</h1>
+    <p>
+      Um guia passo a passo das três áreas da aplicação: consulta de candidaturas, análises
+      cruzadas TSE × IBGE e atualização da base local. Clique no índice para ir direto ao
+      assunto.
+    </p>
+  </header>
+
+  <div class="tutorial__layout">
+    <aside class="tutorial__index" aria-label="Índice do manual">
+      <p class="tutorial__index-title">Neste manual</p>
+      <ol>
+        <li *ngFor="let section of sections; let i = index">
+          <a [href]="'#' + section.id">
+            <span class="tutorial__index-num" aria-hidden="true">{{ i + 1 }}</span>
+            {{ section.title }}
+          </a>
+        </li>
+      </ol>
+    </aside>
+
+    <div class="tutorial__content">
+      <article
+        class="tutorial__card"
+        *ngFor="let section of sections; let i = index"
+        [id]="section.id"
+      >
+        <div class="tutorial__card-head">
+          <span class="tutorial__card-num" aria-hidden="true">{{ i + 1 }}</span>
+          <div class="tutorial__card-titles">
+            <h2>{{ section.title }}</h2>
+            <p class="tutorial__lead">{{ section.lead }}</p>
+          </div>
+        </div>
+        <ol class="tutorial__steps">
+          <li *ngFor="let step of section.steps">{{ step }}</li>
+        </ol>
+        <p class="tutorial__tip" *ngIf="section.tip as tip">
+          <strong>Dica:</strong> {{ tip }}
+        </p>
+      </article>
+
+      <footer class="tutorial__footer">
+        <p>
+          Projeto independente, sem vínculo institucional com o TSE. As referências a dados
+          oficiais indicam as fontes consultadas, não uma afiliacao ou endosso.
+        </p>
+        <p>
+          Precisa sincronizar a base? Acesse
+          <a routerLink="/sync">Atualizar dados</a> na barra superior.
+        </p>
+      </footer>
+    </div>
+  </div>
+</section>

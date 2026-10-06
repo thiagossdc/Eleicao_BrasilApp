@@ -21,6 +21,9 @@
           "builder": "@angular-devkit/build-angular:application",
           "options": {
             "outputPath": "dist/client",
+            "allowedCommonJsDependencies": [
+              "leaflet"
+            ],
             "index": "src/index.html",
             "browser": "src/main.ts",
             "polyfills": [
@@ -49,13 +52,19 @@
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "4kB",
-                  "maximumError": "8kB"
+                  "maximumWarning": "10kB",
+                  "maximumError": "12kB"
                 }
               ],
               "outputHashing": "all"
             },
             "development": {
+              "fileReplacements": [
+                {
+                  "replace": "src/main.ts",
+                  "with": "src/main.dev.ts"
+                }
+              ],
               "optimization": false,
               "extractLicenses": false,
               "sourceMap": true
