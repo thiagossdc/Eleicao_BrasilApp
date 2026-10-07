@@ -10,3 +10,4 @@ server/data/*
 .DS_Store
 .env
 server/.env
+.vercel
