@@ -37,7 +37,7 @@
     </label>
     <label class="field">
       <span>Partido{{ modoAnalise === 'candidato' ? ' · filtro opcional' : '' }}</span>
-      <select name="partido" [(ngModel)]="partido" (ngModelChange)="mudarPartido()" [disabled]="!partyOptions().length && modoAnalise === 'partido'">
+      <select name="partido" [(ngModel)]="partido" (ngModelChange)="mudarPartido()">
         <option *ngIf="modoAnalise === 'candidato'" value="TODOS">Todos os partidos</option>
         <option *ngIf="modoAnalise === 'partido'" value="">Selecione um partido</option>
         <option *ngFor="let party of partyOptions()" [value]="party.sigla">

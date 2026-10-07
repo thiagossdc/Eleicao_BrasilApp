@@ -197,7 +197,10 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
   }
 
   partidosDisponiveis(): CrossingParty[] {
-    return this.parties().filter((party) => party.cargo === this.cargo && party.turno === this.turno);
+    return this.parties().filter((party) =>
+      (!this.cargo || party.cargo === this.cargo) &&
+      (this.turno == null || party.turno === this.turno),
+    );
   }
 
   mudarModoAnalise(): void {
@@ -216,9 +219,14 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
 
   mudarPartido(): void {
     this.candidatoFiltro = '';
-    this.atualizarOpcoesSelecao();
     this.candidato = '';
     this.result.set(null);
+    this.atualizarOpcoesSelecao();
+    // No modo candidato, trocar o partido recarrega a lista (sem auto-selecionar ninguém).
+    if (this.modoAnalise === 'candidato' && this.cargo && this.turno != null) {
+      this.carregarOpcoesCandidatos();
+      return;
+    }
     if (this.modoAnalise === 'partido') {
       // No modo partido já dispara com seleção válida; sem partido mantém mapa vazio.
       this.carregarCruzamento();
@@ -311,6 +319,13 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
     this.loadingCandidates.set(false);
     this.candidato = '';
     this.atualizarOpcoesSelecao();
+    // Cargo/turno definidos liberam a lista de candidatos (modo candidato) sem auto-selecionar.
+    if (this.modoAnalise === 'candidato' && this.cargo && this.turno != null) {
+      this.carregarOpcoesCandidatos();
+    } else {
+      this.candidateOptions.set([]);
+      this.availableCandidateCount.set(0);
+    }
     // Mesmo vazio, a malha reage à UF/abrangência; o overlay só aparece com análise.
     if (!this.mapData() || this.mapUf !== this.uf) this.carregarMalha();
     else if (this.activeView() === 'map') this.renderMap();
