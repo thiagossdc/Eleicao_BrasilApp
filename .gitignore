@@ -11,3 +11,5 @@ server/data/*
 .env
 server/.env
 .vercel
+.tmp-dev.log
+.tmp-api.log
