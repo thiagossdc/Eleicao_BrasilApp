@@ -37,13 +37,15 @@
     </label>
     <label class="field">
       <span>Partido{{ modoAnalise === 'candidato' ? ' · filtro opcional' : '' }}</span>
-      <select name="partido" [(ngModel)]="partido" (ngModelChange)="mudarPartido()">
+      <select name="partido" [(ngModel)]="partido" (ngModelChange)="mudarPartido()" [disabled]="modoAnalise === 'partido' && !partyOptions().length">
         <option *ngIf="modoAnalise === 'candidato'" value="TODOS">Todos os partidos</option>
         <option *ngIf="modoAnalise === 'partido'" value="">Selecione um partido</option>
         <option *ngFor="let party of partyOptions()" [value]="party.sigla">
           {{ party.sigla }} · {{ party.candidatos }} {{ party.candidatos === 1 ? 'candidato' : 'candidatos' }} · {{ party.votos | number }} votos
         </option>
       </select>
+      <small *ngIf="modoAnalise === 'partido' && hasLoadedCatalog() && cargo && turno != null && !partyOptions().length && !loadingCatalog()">Nenhum partido neste cargo/turno.</small>
+      <small *ngIf="modoAnalise === 'partido' && hasLoadedCatalog() && (!cargo || turno == null)">Escolha cargo e turno para listar os partidos.</small>
     </label>
     <label class="field" *ngIf="modoAnalise === 'candidato'">
       <span>Filtrar candidatos</span>

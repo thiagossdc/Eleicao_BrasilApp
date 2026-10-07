@@ -210,27 +210,35 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
     this.loadingCandidates.set(false);
     this.partido = this.modoAnalise === 'partido' ? '' : 'TODOS';
     this.candidato = '';
+    this.candidateOptions.set([]);
+    this.availableCandidateCount.set(0);
     this.result.set(null);
     this.atualizarOpcoesSelecao();
-    // Modo partido sem seleção mantém mapa vazio; demais fluxos aguardam escolha explícita.
-    if (this.modoAnalise === 'partido' && this.partido) this.carregarCruzamento();
-    else if (this.activeView() === 'map') this.renderMap();
+    // Modo partido dispara se já houver seleção válida; modo candidato recarrega lista se cargo/turno ok.
+    if (this.modoAnalise === 'partido' && this.partido && this.cargo && this.turno != null) {
+      this.carregarCruzamento();
+    } else if (this.modoAnalise === 'candidato' && this.cargo && this.turno != null) {
+      this.carregarOpcoesCandidatos();
+    } else if (this.activeView() === 'map') {
+      this.renderMap();
+    }
   }
 
   mudarPartido(): void {
     this.candidatoFiltro = '';
     this.candidato = '';
     this.result.set(null);
-    this.atualizarOpcoesSelecao();
+    // Não refiltra partyOptions aqui: o select já reflete o catálogo; refiltrar esvaziaria
+    // a lista no modo partido quando cargo/turno ainda estão vazios.
     // No modo candidato, trocar o partido recarrega a lista (sem auto-selecionar ninguém).
     if (this.modoAnalise === 'candidato' && this.cargo && this.turno != null) {
       this.carregarOpcoesCandidatos();
       return;
     }
     if (this.modoAnalise === 'partido') {
-      // No modo partido já dispara com seleção válida; sem partido mantém mapa vazio.
-      this.carregarCruzamento();
-      if (!this.partido && this.activeView() === 'map') this.renderMap();
+      // No modo partido dispara quando há seleção completa; sem partido/cargo/turno mantém mapa vazio.
+      if (this.partido && this.cargo && this.turno != null) this.carregarCruzamento();
+      else if (this.activeView() === 'map') this.renderMap();
       return;
     }
     if (this.activeView() === 'map') this.renderMap();
@@ -318,13 +326,28 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
     this.candidateLoadId += 1;
     this.loadingCandidates.set(false);
     this.candidato = '';
+    // Se o cargo atual sumiu do catálogo (troca de ano/UF), reseta para forçar escolha válida.
+    if (this.cargo && !this.cargos().includes(this.cargo)) {
+      this.cargo = '';
+      this.turno = null;
+      if (this.modoAnalise === 'partido') this.partido = '';
+    }
     this.atualizarOpcoesSelecao();
+    // Se o partido selecionado não existe neste cargo/turno, reseta sem esvaziar a lista.
+    if (this.modoAnalise === 'partido' && this.partido &&
+        !this.partyOptions().some((p) => p.sigla === this.partido)) {
+      this.partido = '';
+    }
     // Cargo/turno definidos liberam a lista de candidatos (modo candidato) sem auto-selecionar.
     if (this.modoAnalise === 'candidato' && this.cargo && this.turno != null) {
       this.carregarOpcoesCandidatos();
     } else {
       this.candidateOptions.set([]);
       this.availableCandidateCount.set(0);
+    }
+    // Modo partido com seleção completa dispara a análise.
+    if (this.modoAnalise === 'partido' && this.partido && this.cargo && this.turno != null) {
+      this.carregarCruzamento();
     }
     // Mesmo vazio, a malha reage à UF/abrangência; o overlay só aparece com análise.
     if (!this.mapData() || this.mapUf !== this.uf) this.carregarMalha();
