@@ -24,6 +24,7 @@
     <label class="field">
       <span>Cargo</span>
       <select name="cargo" [(ngModel)]="cargo" (ngModelChange)="filtrosMudaram()" [disabled]="!cargos().length">
+        <option value="">Selecione um cargo</option>
         <option *ngFor="let office of cargos()" [value]="office">{{ office }}</option>
       </select>
     </label>
@@ -36,8 +37,9 @@
     </label>
     <label class="field">
       <span>Partido{{ modoAnalise === 'candidato' ? ' · filtro opcional' : '' }}</span>
-      <select name="partido" [(ngModel)]="partido" (ngModelChange)="mudarPartido()" [disabled]="!partyOptions().length">
+      <select name="partido" [(ngModel)]="partido" (ngModelChange)="mudarPartido()" [disabled]="!partyOptions().length && modoAnalise === 'partido'">
         <option *ngIf="modoAnalise === 'candidato'" value="TODOS">Todos os partidos</option>
+        <option *ngIf="modoAnalise === 'partido'" value="">Selecione um partido</option>
         <option *ngFor="let party of partyOptions()" [value]="party.sigla">
           {{ party.sigla }} · {{ party.candidatos }} {{ party.candidatos === 1 ? 'candidato' : 'candidatos' }} · {{ party.votos | number }} votos
         </option>
@@ -77,6 +79,7 @@
       <label class="field field--sm">
         <span>Turno</span>
         <select name="turno" [(ngModel)]="turno" (ngModelChange)="filtrosMudaram()" [disabled]="!turnos().length">
+          <option [ngValue]="null">Selecione</option>
           <option *ngFor="let round of turnos()" [ngValue]="round">{{ round }}º</option>
         </select>
       </label>
@@ -94,9 +97,31 @@
   <p class="cruzamento__loading" *ngIf="loadingCatalog()" aria-live="polite">Consultando resultados oficiais do TSE para {{ nomeAbrangencia() }}…</p>
   <p class="cruzamento__loading" *ngIf="loadingResult()" aria-live="polite">Preparando a comparação municipal com dados do TSE e do IBGE…</p>
   <section class="cruzamento__loading" *ngIf="hasLoadedCatalog() && !result() && !loadingResult() && !loadingCandidates() && modoAnalise === 'candidato' && !error()" aria-live="polite">
-    <strong>Escolha um candidato para ver o mapa</strong>
-    <p>O mapa municipal será exibido com os resultados e os indicadores do IBGE após a seleção.</p>
+    <strong>Escolha filtros para ver a análise</strong>
+    <p>Selecione cargo e candidato. O mapa acima mostra a malha municipal e será colorido após a seleção.</p>
   </section>
+  <section class="cruzamento__loading" *ngIf="hasLoadedCatalog() && !result() && !loadingResult() && modoAnalise === 'partido' && !error()" aria-live="polite">
+    <strong>Escolha filtros para ver a análise</strong>
+    <p>Selecione cargo e partido. O mapa acima mostra a malha municipal e será colorido após a seleção.</p>
+  </section>
+
+    <section class="result-panel map-panel" [hidden]="activeView() !== 'map'">
+      <div class="map-panel__heading">
+        <div>
+          <h2>{{ result() ? (nomeAbrangencia() + ' · votação por município') : (nomeAbrangencia() + ' · mapa municipal') }}</h2>
+          <p class="result-panel__muted" *ngIf="result(); else mapEmptyHint">{{ nomeIndicador() }} · selecione um município para ver os valores</p>
+          <ng-template #mapEmptyHint><p class="result-panel__muted">Selecione cargo e candidato/partido para ver os valores por município</p></ng-template>
+        </div>
+        <span class="map-panel__coverage" *ngIf="result() as data">{{ data.cobertura.municipiosComDados | number }} {{ data.cobertura.municipiosComDados === 1 ? 'município' : 'municípios' }}</span>
+      </div>
+      <p class="cruzamento__error" *ngIf="mapError() as message" role="alert">{{ message }}</p>
+      <p class="result-panel__muted" *ngIf="mapLoading()">Carregando mapa do IBGE…</p>
+      <div #municipalMap class="municipal-map" role="img" [attr.aria-label]="'Mapa de ' + nomeAbrangencia() + ' colorido por ' + nomeIndicador()"></div>
+      <div class="map-legend" aria-label="Legenda do indicador" *ngIf="result()">
+        <span *ngFor="let index of [0, 1, 2, 3, 4]"><i [style.background-color]="corFaixaLegenda(index)"></i>{{ faixaLegenda(index) }}</span>
+        <span><i class="map-legend__empty"></i>Sem dados</span>
+      </div>
+    </section>
 
   <ng-container *ngIf="result() as data">
     <p class="cruzamento__target">
@@ -143,23 +168,6 @@
         </table>
       </div>
       <p class="result-panel__source">As linhas são comparações de um fator por vez (correlação bivariada); não controlam os demais fatores nem demonstram causalidade.</p>
-    </section>
-
-    <section class="result-panel map-panel" [hidden]="activeView() !== 'map'">
-      <div class="map-panel__heading">
-        <div>
-          <h2>{{ nomeAbrangencia() }} · votação por município</h2>
-          <p class="result-panel__muted">{{ nomeIndicador() }} · selecione um município para ver os valores</p>
-        </div>
-        <span class="map-panel__coverage">{{ data.cobertura.municipiosComDados | number }} {{ data.cobertura.municipiosComDados === 1 ? 'município' : 'municípios' }}</span>
-      </div>
-      <p class="cruzamento__error" *ngIf="mapError() as message" role="alert">{{ message }}</p>
-      <p class="result-panel__muted" *ngIf="mapLoading()">Carregando mapa do IBGE…</p>
-      <div #municipalMap class="municipal-map" role="img" [attr.aria-label]="'Mapa de ' + nomeAbrangencia() + ' colorido por ' + nomeIndicador()"></div>
-      <div class="map-legend" aria-label="Legenda do indicador">
-        <span *ngFor="let index of [0, 1, 2, 3, 4]"><i [style.background-color]="corFaixaLegenda(index)"></i>{{ faixaLegenda(index) }}</span>
-        <span><i class="map-legend__empty"></i>Sem dados</span>
-      </div>
     </section>
 
     <section class="cruzamento__results" [hidden]="activeView() !== 'scatter'">

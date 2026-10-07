@@ -172,6 +172,8 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.carregarCatalogo();
+    // Mapa neutro/vazio imediato, sem depender de candidato/cargo.
+    this.carregarMalha();
     this.api.getAssistantStatus().subscribe({
       next: (status) => {
         this.assistantEnabled.set(status.enabled);
@@ -203,24 +205,27 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
     this.candidateRequest?.unsubscribe();
     this.candidateLoadId += 1;
     this.loadingCandidates.set(false);
-    this.partido = this.modoAnalise === 'partido'
-      ? this.partidosDisponiveis()[0]?.sigla ?? ''
-      : 'TODOS';
+    this.partido = this.modoAnalise === 'partido' ? '' : 'TODOS';
+    this.candidato = '';
+    this.result.set(null);
     this.atualizarOpcoesSelecao();
-    if (this.modoAnalise === 'candidato') this.carregarOpcoesCandidatos();
-    else this.carregarCruzamento();
+    // Modo partido sem seleção mantém mapa vazio; demais fluxos aguardam escolha explícita.
+    if (this.modoAnalise === 'partido' && this.partido) this.carregarCruzamento();
+    else if (this.activeView() === 'map') this.renderMap();
   }
 
   mudarPartido(): void {
     this.candidatoFiltro = '';
     this.atualizarOpcoesSelecao();
-    if (this.modoAnalise === 'partido') {
-      this.carregarCruzamento();
-      return;
-    }
     this.candidato = '';
     this.result.set(null);
-    this.carregarOpcoesCandidatos();
+    if (this.modoAnalise === 'partido') {
+      // No modo partido já dispara com seleção válida; sem partido mantém mapa vazio.
+      this.carregarCruzamento();
+      if (!this.partido && this.activeView() === 'map') this.renderMap();
+      return;
+    }
+    if (this.activeView() === 'map') this.renderMap();
   }
 
   mudarCandidato(): void {
@@ -284,15 +289,18 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
     this.parties.set(catalog.partidos);
     this.cargos.set(catalog.cargos);
     this.turnos.set(catalog.turnos);
-    this.cargo = catalog.cargos.find((office) => office.toLocaleLowerCase('pt-BR').includes('presidente')) ?? catalog.cargos[0] ?? '';
-    this.turno = catalog.turnos[0] ?? null;
-    this.partido = this.modoAnalise === 'partido'
-      ? this.partidosDisponiveis()[0]?.sigla ?? ''
-      : 'TODOS';
+    // Por default nada é pré-selecionado: título genérico, sem candidato/partido/cargo.
+    this.cargo = '';
+    this.turno = null;
+    this.partido = this.modoAnalise === 'partido' ? '' : 'TODOS';
+    this.candidato = '';
     this.hasLoadedCatalog.set(true);
     this.atualizarOpcoesSelecao();
-    if (this.modoAnalise === 'candidato') this.carregarOpcoesCandidatos();
-    else this.carregarCruzamento();
+    this.candidateOptions.set([]);
+    this.availableCandidateCount.set(0);
+    this.result.set(null);
+    // Mapa neutro/vazio por default (sem candidato/cargo), mas sempre visível.
+    this.carregarMalha();
   }
 
   filtrosMudaram(): void {
@@ -301,12 +309,11 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
     this.candidateRequest?.unsubscribe();
     this.candidateLoadId += 1;
     this.loadingCandidates.set(false);
+    this.candidato = '';
     this.atualizarOpcoesSelecao();
-    if (this.modoAnalise === 'candidato') this.carregarOpcoesCandidatos();
-    else {
-      this.partido = this.partidosDisponiveis()[0]?.sigla ?? '';
-      this.carregarCruzamento();
-    }
+    // Mesmo vazio, a malha reage à UF/abrangência; o overlay só aparece com análise.
+    if (!this.mapData() || this.mapUf !== this.uf) this.carregarMalha();
+    else if (this.activeView() === 'map') this.renderMap();
   }
 
   carregarCruzamento(): void {
@@ -434,26 +441,8 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
       const sigla = data.alvo.tipo === 'candidato' && data.alvo.partido ? ` · ${data.alvo.partido}` : '';
       return `${alvo}${sigla} · ${data.cargo} ${data.ano} · ${abrang}`;
     }
-    if (this.modoAnalise === 'partido' && this.partido && this.partido !== 'TODOS') {
-      const cargo = this.cargo ? ` · ${this.cargo} ${this.ano}` : '';
-      return `Partido ${this.partido}${cargo}`;
-    }
-    if (this.modoAnalise === 'candidato' && this.candidato) {
-      const found = this.candidateOptions().find((c) => c.sqCandidato === this.candidato);
-      const nome = found
-        ? `${found.nome}${found.partido ? ' · ' + found.partido : ''}`
-        : 'Candidato selecionado';
-      const cargo = this.cargo ? ` · ${this.cargo} ${this.ano}` : '';
-      return `${nome}${cargo}`;
-    }
-    const cargoNorm = (this.cargo || '').toLocaleLowerCase('pt-BR');
-    if (cargoNorm.includes('presidente') || (this.uf === 'BRASIL' && !this.cargo)) {
-      return 'Candidaturas à Presidência';
-    }
-    if (this.cargo) {
-      return `${this.cargo} · ${this.ano} · ${this.nomeAbrangencia()}`;
-    }
-    return 'Explore votos e território';
+    // Default neutro: nunca expor candidato/cargo/partido sem filtragem explícita.
+    return 'Eleições no Brasil';
   }
 
   perguntarAssistente(): void {
@@ -604,13 +593,17 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
   private aplicarOpcoesCandidatos(response: CrossingCandidatesResponse): void {
     this.candidateOptions.set(response.items);
     this.availableCandidateCount.set(response.total);
-    const selectedIsAvailable = response.items.some((candidate) => candidate.sqCandidato === this.candidato);
+    // Sem pré-seleção: o usuário escolhe explicitamente; mantém seleção válida se ainda existir.
+    const selectedIsAvailable = this.candidato
+      ? response.items.some((candidate) => candidate.sqCandidato === this.candidato)
+      : false;
     if (!selectedIsAvailable) {
-      // Mapa por default: seleciona o mais votado na abertura / troca de filtro.
-      this.candidato = response.items[0]?.sqCandidato ?? '';
+      this.candidato = '';
+      this.result.set(null);
+      if (this.activeView() === 'map') this.renderMap();
+      return;
     }
-    if (this.candidato) this.carregarCruzamento();
-    else this.result.set(null);
+    this.carregarCruzamento();
   }
 
   private carregarMalha(): void {
@@ -634,11 +627,11 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
   private renderMap(): void {
     const element = this.mapElement?.nativeElement;
     const featureCollection = this.mapData();
+    if (!element || !featureCollection) return;
     const result = this.result();
-    if (!element || !featureCollection || !result) return;
 
-    // O painel do mapa vive dentro de um *ngIf(result). Quando o resultado é
-    // trocado (novo candidato/UF), o Angular destrói e recria a div do mapa.
+    // O painel do mapa vive fora do *ngIf(result) para existir vazio por default.
+    // Quando o resultado é trocado (novo candidato/UF), o Angular pode recriar a div.
     // Reutilizar a instância antiga do Leaflet a liga ao elemento destacado,
     // então o mapa "some". Recria quando o container mudou.
     if (this.map && this.map.getContainer() !== element) {
@@ -655,7 +648,8 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
       }).addTo(this.map);
     }
     this.mapLayer?.remove();
-    const pointByCode = new Map(result.pontos.map((point) => [point.codigoIbge, point]));
+    const pointByCode = new Map((result?.pontos ?? []).map((point) => [point.codigoIbge, point]));
+    const indicadorUnidade = result?.indicador.unidade ?? '';
     this.mapLayer = L.geoJSON(featureCollection as GeoJSON.GeoJsonObject, {
       style: (feature) => {
         const code = String(feature?.properties?.['codarea'] ?? '');
@@ -670,9 +664,9 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
       onEachFeature: (feature, layer) => {
         const code = String(feature.properties?.['codarea'] ?? '');
         const point = pointByCode.get(code);
-        const description = point
-          ? `${point.municipio}: ${point.indicador?.toLocaleString('pt-BR') ?? 'sem dados'} ${result.indicador.unidade}; ${point.percentualVotos.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}% dos votos`
-          : 'Sem correspondência ou indicador disponível';
+        const description = point && result
+          ? `${point.municipio}: ${point.indicador?.toLocaleString('pt-BR') ?? 'sem dados'} ${indicadorUnidade}; ${point.percentualVotos.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}% dos votos`
+          : 'Selecione filtros para ver os valores por município';
         const content = document.createElement('div');
         content.textContent = description;
         layer.bindTooltip(content);
