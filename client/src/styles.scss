@@ -13,6 +13,7 @@
   --color-accent-dim: #e6f0f8;
   --color-highlight: #f4c542;
   --color-danger: #a33b34;
+  --color-on-map: #ffffff;
   --radius-sm: 3px;
   --radius-md: 5px;
   --radius-lg: 7px;
@@ -124,4 +125,38 @@ select {
 :focus-visible {
   outline: 3px solid color-mix(in srgb, var(--color-accent) 48%, white);
   outline-offset: 2px;
+}
+
+/*
+ * Garante que o atributo hidden sempre oculte o elemento. Sem esta regra, um
+ * display definido na classe (ex.: .cruzamento__results { display: grid })
+ * vence o [hidden] da folha de estilo do navegador e o painel fica visível.
+ */
+[hidden] {
+  display: none !important;
+}
+
+/* Texto disponível apenas para leitores de tela (legendas de tabela, etc.). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Acessibilidade: respeita quem configurou redução de movimento no sistema. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
 }

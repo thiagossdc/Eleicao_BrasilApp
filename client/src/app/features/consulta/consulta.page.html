@@ -1,11 +1,10 @@
 <section class="consulta">
   <header class="consulta__intro">
-    <p class="consulta__sync-hint" *ngIf="stats() as summary; else loadingStats">
-      <ng-container *ngIf="summary.totalCandidatos === 0">
-        Base vazia. Vá em <a routerLink="/sync">Atualizar dados</a> para importar dados públicos do TSE.
-      </ng-container>
+    <!-- Resumo da base: só existe quando a base está vazia (sem <p> vazio). -->
+    <p class="consulta__sync-hint" *ngIf="stats()?.totalCandidatos === 0">
+      Base vazia. Vá em <a routerLink="/sync">Atualizar dados</a> para importar dados públicos do TSE.
     </p>
-    <ng-template #loadingStats><p class="consulta__error" *ngIf="statsError() as message" role="alert">{{ message }}</p></ng-template>
+    <p class="consulta__muted" *ngIf="statsLoading()" aria-live="polite">Carregando resumo da base…</p>
     <h1>Consulta de candidaturas</h1>
     <p>
       Dados do
@@ -24,18 +23,18 @@
     <div class="consulta__filters-row">
       <label class="field">
         <span>Nome ou urna</span>
-        <input type="search" name="q" [(ngModel)]="filtroNome" placeholder="Ex.: Silva" autocomplete="off" />
+        <input type="search" name="q" [(ngModel)]="filtroNome" (ngModelChange)="agendarBusca()" placeholder="Ex.: Silva" autocomplete="off" />
       </label>
       <label class="field field--sm">
         <span>UF</span>
-        <select name="uf" [(ngModel)]="filtroUf">
+        <select name="uf" [(ngModel)]="filtroUf" (ngModelChange)="agendarBusca()">
           <option value="">Todas</option>
           <option *ngFor="let u of ufs" [value]="u">{{ u }}</option>
         </select>
       </label>
       <label class="field field--sm">
         <span>Ano</span>
-        <select name="ano" [(ngModel)]="filtroAno">
+        <select name="ano" [(ngModel)]="filtroAno" (ngModelChange)="agendarBusca()">
           <option [ngValue]="null">Qualquer</option>
           <option *ngFor="let a of anosEleicao" [ngValue]="a">{{ a }}</option>
         </select>
@@ -44,14 +43,14 @@
     <div class="consulta__filters-row">
       <label class="field field--sm">
         <span>Cargo</span>
-        <select name="cargo" [(ngModel)]="filtroCargo">
+        <select name="cargo" [(ngModel)]="filtroCargo" (ngModelChange)="agendarBusca()">
           <option value="">Todos</option>
           <option *ngFor="let cargo of cargos()" [value]="cargo">{{ cargo }}</option>
         </select>
       </label>
       <label class="field field--sm">
         <span>Partido</span>
-        <select name="partido" [(ngModel)]="filtroPartido">
+        <select name="partido" [(ngModel)]="filtroPartido" (ngModelChange)="agendarBusca()">
           <option value="">Todos</option>
           <option *ngFor="let partido of partidos()" [value]="partido.sigla">
             {{ partido.sigla }} · {{ partido.nome }}
@@ -59,7 +58,7 @@
         </select>
       </label>
       <label class="checkbox">
-        <input type="checkbox" name="risk" [(ngModel)]="apenasRisco" />
+        <input type="checkbox" name="risk" [(ngModel)]="apenasRisco" (ngModelChange)="agendarBusca()" />
         <span>Só com alerta (cassação TSE ou situação com “cass”)</span>
       </label>
     </div>
@@ -70,22 +69,26 @@
 
   <p class="consulta__error" *ngIf="error() as err">{{ err }}</p>
 
-  <div class="consulta__layout" *ngIf="hasSearched()">
+  <div class="consulta__layout" *ngIf="hasSearched()" [attr.aria-busy]="loading()">
     <div class="consulta__table-wrap">
       <table class="data-table">
+        <caption class="sr-only">Candidaturas encontradas com os filtros selecionados</caption>
         <thead>
           <tr>
-            <th>Nome</th>
-            <th>Urna</th>
-            <th>UF</th>
-            <th>Ano</th>
-            <th>Partido</th>
-            <th>Cargo</th>
-            <th></th>
+            <th scope="col">Nome</th>
+            <th scope="col">Urna</th>
+            <th scope="col">UF</th>
+            <th scope="col">Ano</th>
+            <th scope="col">Partido</th>
+            <th scope="col">Cargo</th>
+            <th scope="col"><span class="sr-only">Ações</span></th>
           </tr>
         </thead>
         <tbody>
-          <tr *ngIf="!items().length">
+          <tr *ngIf="loading()">
+            <td colspan="7" class="data-table__empty" aria-live="polite">Buscando candidaturas…</td>
+          </tr>
+          <tr *ngIf="!loading() && !items().length">
             <td colspan="7" class="data-table__empty">Nenhuma linha para exibir.</td>
           </tr>
           <tr
@@ -96,7 +99,16 @@
             <td>{{ row.nomeUrna || '—' }}</td>
             <td>{{ row.uf }}</td>
             <td>{{ row.anoEleicao }}</td>
-            <td>{{ row.partido || '—' }}</td>
+            <td
+              class="party-cell"
+              [style.background-color]="partidoCor(row.partido)"
+            >
+              <span class="party-badge" [style.color]="partidoTexto(row.partido)">
+                {{ row.partido || '—' }}
+              </span>
+            </td>
+
+
             <td>{{ row.cargo || '—' }}</td>
             <td>
               <span class="badge badge--warn" *ngIf="temAlerta(row)">Alerta</span>
@@ -105,7 +117,16 @@
           </tr>
         </tbody>
       </table>
-      <p class="consulta__meta">{{ total() | number }} resultado(s)</p>
+      <div class="consulta__table-footer">
+        <p class="consulta__meta" aria-live="polite">{{ resumoPaginacao() }}</p>
+        <nav class="pagination" *ngIf="totalPages() > 1" aria-label="Páginas de resultados">
+          <button type="button" class="btn btn--ghost btn--sm" (click)="irParaPagina(pagina() - 1)"
+            [disabled]="pagina() === 0 || loading()">← Anterior</button>
+          <span class="pagination__page">Página {{ pagina() + 1 }} de {{ totalPages() }}</span>
+          <button type="button" class="btn btn--ghost btn--sm" (click)="irParaPagina(pagina() + 1)"
+            [disabled]="pagina() >= totalPages() - 1 || loading()">Próxima →</button>
+        </nav>
+      </div>
     </div>
 
     <aside class="consulta__detail" *ngIf="selected() as sel">
@@ -123,7 +144,7 @@
         <dt>Eleição</dt>
         <dd>{{ sel.eleicao || '—' }}</dd>
         <dt>Situação</dt>
-        <dd>{{ sel.situacao || '—' }}</dd>
+        <dd>{{ situacaoLegenda(sel.situacao) }}</dd>
         <dt>Partido</dt>
         <dd>{{ sel.nomePartido || sel.partido || '—' }}</dd>
       </dl>

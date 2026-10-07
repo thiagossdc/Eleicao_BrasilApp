@@ -23,16 +23,16 @@
     </label>
     <label class="field">
       <span>Cargo</span>
-      <select name="cargo" [(ngModel)]="cargo" (ngModelChange)="filtrosMudaram()" [disabled]="!cargos().length">
-        <option value="">Selecione um cargo</option>
+      <select name="cargo" [(ngModel)]="cargo" (ngModelChange)="filtrosMudaram()">
+        <option [ngValue]="" disabled>{{ carregandoCargos() ? 'Buscando cargos do TSE…' : 'Selecione um cargo' }}</option>
         <option *ngFor="let office of cargos()" [value]="office">{{ office }}</option>
       </select>
       <small *ngIf="uf === 'BRASIL' && hasLoadedCatalog() && cargos().length === 1">No modo Brasil inteiro, o TSE só publica Presidente. Para outros cargos, escolha uma UF.</small>
     </label>
     <label class="field field--sm">
       <span>Turno</span>
-      <select name="turno" [(ngModel)]="turno" (ngModelChange)="filtrosMudaram()" [disabled]="!turnos().length">
-        <option [ngValue]="null">Selecione</option>
+      <select name="turno" [(ngModel)]="turno" (ngModelChange)="filtrosMudaram()">
+        <option [ngValue]="" disabled>{{ carregandoTurnos() ? 'Buscando turnos do TSE…' : 'Selecione um turno' }}</option>
         <option *ngFor="let round of turnos()" [ngValue]="round">{{ round }}º</option>
       </select>
     </label>
@@ -45,7 +45,7 @@
     </label>
     <label class="field">
       <span>Partido{{ modoAnalise === 'candidato' ? ' · filtro opcional' : '' }}</span>
-      <select name="partido" [(ngModel)]="partido" (ngModelChange)="mudarPartido()" [disabled]="modoAnalise === 'partido' && !partyOptions().length">
+      <select name="partido" [(ngModel)]="partido" (ngModelChange)="mudarPartido()">
         <option *ngIf="modoAnalise === 'candidato'" value="TODOS">Todos os partidos</option>
         <option *ngIf="modoAnalise === 'partido'" value="">Selecione um partido</option>
         <option *ngFor="let party of partyOptions()" [value]="party.sigla">
@@ -63,10 +63,10 @@
     </label>
     <label class="field field--candidate" *ngIf="modoAnalise === 'candidato'">
       <span>Candidato</span>
-      <select name="candidato" [(ngModel)]="candidato" (ngModelChange)="mudarCandidato()" [disabled]="!candidateOptions().length">
+      <select name="candidato" [(ngModel)]="candidato" (ngModelChange)="mudarCandidato()">
         <option value="">Selecione um candidato</option>
         <option *ngFor="let candidate of candidateOptions()" [value]="candidate.sqCandidato">
-          {{ candidate.nome }}{{ candidate.partido ? ' · ' + candidate.partido : '' }} · {{ candidate.votos | number }} votos
+          {{ candidate.nome }}{{ candidate.partido ? ' · ' + candidate.partido : '' }}<ng-container *ngIf="candidate.votos > 0"> · {{ candidate.votos | number }} votos</ng-container>
         </option>
       </select>
       <small *ngIf="availableCandidateCount() > candidateOptions().length && !candidatoFiltro">
@@ -88,7 +88,7 @@
     <div class="filter-details__grid">
       <label class="field field--sm">
         <span>Escala do gráfico</span>
-        <select name="escala" [ngModel]="logScale()" (ngModelChange)="logScale.set($event)">
+        <select name="escala" [ngModel]="logScale()" (ngModelChange)="mudarEscala($event)">
           <option [ngValue]="false">Linear</option>
           <option [ngValue]="true">Logarítmica</option>
         </select>
@@ -99,13 +99,22 @@
   <p class="cruzamento__error" *ngIf="error() as message" role="alert">{{ message }}</p>
   <p class="cruzamento__loading" *ngIf="loadingCatalog()" aria-live="polite">Consultando resultados oficiais do TSE para {{ nomeAbrangencia() }}…</p>
   <p class="cruzamento__loading" *ngIf="loadingResult()" aria-live="polite">Preparando a comparação municipal com dados do TSE e do IBGE…</p>
-  <section class="cruzamento__loading" *ngIf="hasLoadedCatalog() && !result() && !loadingResult() && !loadingCandidates() && modoAnalise === 'candidato' && !error()" aria-live="polite">
-    <strong>Escolha filtros para ver a análise</strong>
-    <p>Selecione cargo e candidato. O mapa acima mostra a malha municipal e será colorido após a seleção.</p>
-  </section>
-  <section class="cruzamento__loading" *ngIf="hasLoadedCatalog() && !result() && !loadingResult() && modoAnalise === 'partido' && !error()" aria-live="polite">
-    <strong>Escolha filtros para ver a análise</strong>
-    <p>Selecione cargo e partido. O mapa acima mostra a malha municipal e será colorido após a seleção.</p>
+  <section class="cruzamento__loading" *ngIf="hasLoadedCatalog() && !result() && !loadingResult() && !loadingCandidates() && !error()" aria-live="polite">
+    <ng-container *ngIf="modoAnalise === 'partido'; else esperandoCandidato">
+      <strong>Escolha um partido</strong>
+      <p>Cargo e turno já vêm pré-preenchidos. Selecione a sigla para colorir o mapa por município.</p>
+      <p *ngIf="partyOptions().length === 0" class="cruzamento__muted">Nenhum partido disponível para este cargo/turno.</p>
+    </ng-container>
+    <ng-template #esperandoCandidato>
+      <strong>Aguardando candidato</strong>
+      <p>Cargo e turno já vêm selecionados. Escolha um candidato para gerar o cruzamento.</p>
+      <div class="cruzamento__quick" *ngIf="cargo && turno != null">
+        <button type="button" *ngFor="let candidate of topCandidates()" (click)="selecionarCandidato(candidate.sqCandidato)">
+          {{ candidate.nome }} · {{ candidate.votos | number }} votos
+        </button>
+      </div>
+      <p *ngIf="cargo && turno != null && candidateOptions().length === 0" class="cruzamento__muted">Nenhum candidato disponível para este cargo/turno.</p>
+    </ng-template>
   </section>
 
     <section class="result-panel map-panel" [hidden]="activeView() !== 'map'">
@@ -113,29 +122,103 @@
         <div>
           <h2>{{ result() ? (nomeAbrangencia() + ' · votação por município') : (nomeAbrangencia() + ' · mapa municipal') }}</h2>
           <p class="result-panel__muted" *ngIf="result(); else mapEmptyHint">{{ nomeIndicador() }} · selecione um município para ver os valores</p>
-          <ng-template #mapEmptyHint><p class="result-panel__muted">Selecione cargo e candidato/partido para ver os valores por município</p></ng-template>
+          <ng-template #mapEmptyHint><p class="result-panel__muted">O mapa foca no estado selecionado na abrangência. Escolha candidato/partido para ver os valores por município</p></ng-template>
         </div>
         <span class="map-panel__coverage" *ngIf="result() as data">{{ data.cobertura.municipiosComDados | number }} {{ data.cobertura.municipiosComDados === 1 ? 'município' : 'municípios' }}</span>
+        <span class="party-chip party-chip--map" *ngIf="siglaColorida() as sigla" [style.background-color]="partidoCor(sigla)" [style.color]="partidoTexto(sigla)">{{ sigla }}</span>
       </div>
       <p class="cruzamento__error" *ngIf="mapError() as message" role="alert">{{ message }}</p>
       <p class="result-panel__muted" *ngIf="mapLoading()">Carregando mapa do IBGE…</p>
-      <div #municipalMap class="municipal-map" role="img" [attr.aria-label]="'Mapa de ' + nomeAbrangencia() + ' colorido por ' + nomeIndicador()"></div>
-      <div class="map-legend" aria-label="Legenda do indicador" *ngIf="result()">
-        <span *ngFor="let index of [0, 1, 2, 3, 4]"><i [style.background-color]="corFaixaLegenda(index)"></i>{{ faixaLegenda(index) }}</span>
-        <span><i class="map-legend__empty"></i>Sem dados</span>
+      <!-- role=region (e não img): o container tem controles interativos do Leaflet. -->
+      <div #municipalMap class="municipal-map" role="region" [attr.aria-label]="'Mapa de ' + nomeAbrangencia() + ' colorido por ' + nomeIndicador() + '. Use Tab para acessar os controles.'"></div>
+      <div class="map-legend" role="list" aria-label="Legenda do indicador" *ngIf="result()">
+        <span role="listitem" *ngFor="let index of [0, 1, 2, 3, 4]"><i [style.background-color]="corFaixaLegenda(index)"></i>{{ faixaLegenda(index) }}</span>
+        <span role="listitem"><i class="map-legend__empty"></i>Sem dados</span>
       </div>
+      <p class="result-panel__muted" *ngIf="siglaColorida() as sigla">Cores na rampa do {{ sigla }}: tons claros = votação menor; tons cheios = votação maior. Sem sigla, a rampa é azul neutra.</p>
     </section>
 
   <ng-container *ngIf="result() as data">
     <p class="cruzamento__target">
       {{ data.alvo.tipo === 'partido' ? 'Análise por partido' : 'Análise por candidato' }}:
       <strong>{{ data.alvo.nome }}</strong>
-      <span *ngIf="data.alvo.tipo === 'candidato' && data.alvo.partido">· {{ data.alvo.partido }}</span>
+      <span class="party-chip" *ngIf="data.alvo.tipo === 'candidato' && siglaColorida() as sigla" [style.background-color]="partidoCor(sigla)" [style.color]="partidoTexto(sigla)" [attr.aria-label]="'Partido ' + sigla">· {{ sigla }}</span>
     </p>
     <section class="cruzamento__meta" aria-label="Resumo da análise">
       <span><strong>{{ analyzedPoints().length | number }}</strong> {{ analyzedPoints().length === 1 ? 'município analisado' : 'municípios analisados' }}</span>
       <span><strong>{{ data.cobertura.municipiosComDados | number }}</strong> {{ data.cobertura.municipiosComDados === 1 ? 'município com indicador' : 'municípios com indicador' }}</span>
-      <span *ngIf="stats() as summary"><strong>r {{ summary.r | number: '1.0-2' }}</strong> correlação de Pearson{{ logScale() ? ' · escala log10' : '' }}</span>
+      <span *ngIf="stats() as summary"><strong>r {{ summary.r | number: '1.0-2' }}</strong> {{ summary.forca }}{{ summary.spearman != null ? ' · ρ ' + (summary.spearman | number: '1.0-2') : '' }}{{ logScale() ? ' · escala log10' : '' }}</span>
+<section class="cruzamento__stats-grid" aria-label="Estatísticas descritivas da análise">
+  <p class="cruzamento__plain" *ngIf="stats() as summary">{{ resumoPlano() }}</p>
+  <ng-container *ngIf="stats() as summary">
+    <div class="cruzamento__stat">
+      <span class="cruzamento__stat-value">{{ summary.n | number }}</span>
+      <span class="cruzamento__stat-label">Municípios avaliados</span>
+    </div>
+    <div class="cruzamento__stat">
+      <span class="cruzamento__stat-value">r {{ summary.r | number:'1.0-2' }} · {{ summary.forca }}</span>
+      <span class="cruzamento__stat-label">Pearson (linear)<span class="cruzamento__stat-hint" *ngIf="summary.rLower != null && summary.rUpper != null"> · margem {{ summary.rLower | number:'1.0-2' }} a {{ summary.rUpper | number:'1.0-2' }}</span></span>
+    </div>
+    <div class="cruzamento__stat">
+      <span class="cruzamento__stat-value">{{ summary.spearman != null ? ('ρ ' + (summary.spearman | number:'1.0-2')) : '—' }}</span>
+      <span class="cruzamento__stat-label">Spearman (ordem, robusto)</span>
+    </div>
+    <div class="cruzamento__stat">
+      <span class="cruzamento__stat-value">{{ summary.media | number:'1.0-2' }}%</span>
+      <span class="cruzamento__stat-label">Média de votos nominais</span>
+    </div>
+    <div class="cruzamento__stat">
+      <span class="cruzamento__stat-value">{{ summary.mediana | number:'1.0-2' }}%</span>
+      <span class="cruzamento__stat-label">Mediana<span class="cruzamento__stat-hint"> · metade acima, metade abaixo</span></span>
+    </div>
+    <div class="cruzamento__stat">
+      <span class="cruzamento__stat-value">{{ summary.desvioPadrao | number:'1.0-2' }} p.p.</span>
+      <span class="cruzamento__stat-label">Desvio padrão<span class="cruzamento__stat-hint"> · dispersão típica</span></span>
+    </div>
+    <div class="cruzamento__stat">
+      <span class="cruzamento__stat-value">{{ summary.coeficienteVariacao | number:'1.0-1' }}%</span>
+      <span class="cruzamento__stat-label">Coeficiente de variação</span>
+    </div>
+    <div class="cruzamento__stat">
+      <span class="cruzamento__stat-value">{{ summary.minimo | number:'1.0-2' }}–{{ summary.maximo | number:'1.0-2' }}%</span>
+      <span class="cruzamento__stat-label">Mínimo–máximo</span>
+    </div>
+    <div class="cruzamento__stat">
+      <span class="cruzamento__stat-value">{{ summary.outliers | number }} {{ summary.outliers === 1 ? 'atípico' : 'atípicos' }}</span>
+      <span class="cruzamento__stat-label">Municípios fora do padrão (1,5×IQR)</span>
+    </div>
+  </ng-container>
+</section>
+
+<details class="analysis-details">
+  <summary>Mais estatísticas (quartis, forma e reta ajustada)</summary>
+  <ng-container *ngIf="stats() as summary">
+    <dl class="stats-list">
+      <dt>Q1 (25%) / mediana / Q3 (75%)</dt>
+      <dd>{{ summary.q1 | number:'1.0-2' }}% / {{ summary.mediana | number:'1.0-2' }}% / {{ summary.q3 | number:'1.0-2' }}%</dd>
+      <dt>Intervalo interquartil (metade central)</dt>
+      <dd>{{ summary.iqr | number:'1.0-2' }} p.p.</dd>
+      <dt>R² (parte explicada pela reta)</dt>
+      <dd>{{ summary.r2 | number:'1.0-3' }} ({{ summary.r2 * 100 | number:'1.0-1' }}%)</dd>
+      <dt>Inclinação da reta{{ logScale() ? ' (por unidade de log10)' : '' }}</dt>
+      <dd>{{ summary.slope | number:'1.0-4' }} p.p./unidade</dd>
+      <dt>Erro típico em torno da reta (RMSE)</dt>
+      <dd>{{ summary.rmse | number:'1.0-2' }} p.p.</dd>
+      <dt>Assimetria (cauda)</dt>
+      <dd>{{ summary.skewness | number:'1.0-2' }} — {{ rotuloAssimetria(summary.skewness) }}</dd>
+      <dt>Curtose (picos vs. caudas)</dt>
+      <dd>{{ summary.kurtosis | number:'1.0-2' }} — {{ rotuloCurtose(summary.kurtosis) }}</dd>
+      <dt>p-valor nominal (exploratório)</dt>
+      <dd>{{ summary.p < 0.0001 ? '< 0,0001' : (summary.p | number: '1.0-4') }}</dd>
+    </dl>
+    <p class="cruzamento__guardrail">
+      Leitura guiada: Q1–Q3 mostram onde está a metade central dos municípios; R² diz quanto da
+      variação a reta acompanha (não prova causa); RMSE diz o erro típico dos municípios em torno
+      da reta; assimetria e curtose descrevem a forma (cauda longa, picos). O p-valor pressupõe
+      municípios independentes — vizinhos se parecem, então leia como pista, não como prova.
+    </p>
+  </ng-container>
+</details>
     </section>
     <p class="analysis-warning" *ngIf="analyzedPoints().length < 3">
       Este recorte tem {{ analyzedPoints().length }} {{ analyzedPoints().length === 1 ? 'município' : 'municípios' }} com dados para {{ data.alvo.tipo === 'partido' ? 'o partido' : 'o candidato' }} selecionado. Gráficos comparativos precisam de pelo menos três observações.
@@ -180,13 +263,14 @@
             <h2>Votação e {{ nomeIndicador() | lowercase }}</h2>
             <p class="result-panel__muted">Cada ponto representa um município. Passe sobre os pontos para ver detalhes.</p>
           </div>
-          <span *ngIf="stats() as summary">r {{ summary.r | number: '1.0-2' }}</span>
+          <span *ngIf="stats() as summary">r {{ summary.r | number: '1.0-2' }} · {{ summary.forca }}</span>
         </div>
+        <p class="result-panel__muted" *ngIf="resumoDispersao()">{{ resumoDispersao() }}</p>
         <svg viewBox="0 0 720 360" role="img" [attr.aria-label]="'Dispersão de ' + nomeIndicador() + ' e percentual de votos nominais'">
           <line x1="58" y1="292" x2="688" y2="292" class="chart-axis" />
           <line x1="58" y1="42" x2="58" y2="292" class="chart-axis" />
           <line *ngIf="plotPoints().line as line" [attr.x1]="line.x1" [attr.y1]="line.y1" [attr.x2]="line.x2" [attr.y2]="line.y2" class="chart-trend" />
-          <circle *ngFor="let point of plotPoints().dots" [attr.cx]="point.cx" [attr.cy]="point.cy" r="3.5" class="chart-dot">
+          <circle *ngFor="let point of plotPoints().dots" [attr.cx]="point.cx" [attr.cy]="point.cy" r="3.5" class="chart-dot" [attr.fill]="corPontoDispersao(point.indicador)">
             <title>{{ point.municipio }}: {{ point.percentualVotos | number: '1.0-2' }}%</title>
           </circle>
           <text x="370" y="344" text-anchor="middle" class="chart-label">{{ nomeIndicador() }}{{ logScale() ? ' (log10)' : '' }}</text>
@@ -222,6 +306,13 @@
         </span>
       </div>
       <p class="result-panel__muted bar-chart-panel__footnote">Cada barra é a média do percentual de votos de todos os municípios dentro daquela faixa do indicador. Nenhuma barra representa um candidato, partido ou eleitor isolado.</p>
+      <div class="table-wrap" *ngIf="barChartPlan().bars.length">
+        <table class="data-table">
+          <caption class="sr-only">Média de votos por faixa do indicador, em formato de tabela</caption>
+          <thead><tr><th scope="col">Faixa</th><th scope="col">Intervalo</th><th scope="col">Municípios</th><th scope="col">Média de votos</th></tr></thead>
+          <tbody><tr *ngFor="let bar of barChartPlan().bars"><td>{{ bar.label }}<span *ngIf="bar.position"> · {{ bar.position }}</span></td><td>{{ bar.range }}</td><td>{{ bar.count | number }}</td><td>{{ bar.mean | number:'1.0-2' }}%</td></tr></tbody>
+        </table>
+      </div>
       <p class="result-panel__muted" *ngIf="!barChartPlan().bars.length">São necessários ao menos cinco municípios com dados para calcular a média de votos por faixa do indicador. Ajuste o filtro ou escolha outro indicador.</p>
     </section>
 

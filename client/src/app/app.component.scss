@@ -68,7 +68,8 @@
 .app-shell__nav a {
   color: rgb(255 255 255 / 80%);
   text-decoration: none;
-  padding: 0.55rem 0.8rem;
+  /* 0.75rem verticais + linha de 1.5 ≈ 44px: alvo de toque confortável. */
+  padding: 0.75rem 0.85rem;
   border-bottom: 2px solid transparent;
   font-size: 0.9rem;
 }
@@ -114,7 +115,7 @@
 
   .app-shell__nav a {
     flex: 1;
-    padding: 0.6rem 0.2rem;
+    padding: 0.75rem 0.25rem;
     text-align: center;
     font-size: 0.8rem;
   }
@@ -159,6 +160,11 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   box-shadow: 0 18px 50px rgb(10 25 40 / 30%);
+}
+
+/* Recebe o foco programaticamente ao abrir; o anel fica nos controles internos. */
+.tutorial-intro__dialog:focus {
+  outline: none;
 }
 
 .tutorial-intro__close {

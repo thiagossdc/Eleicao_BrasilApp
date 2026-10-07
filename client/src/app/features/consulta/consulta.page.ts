@@ -2,16 +2,28 @@ import { CommonModule } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  OnDestroy,
   OnInit,
+  computed,
   inject,
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
-import { finalize } from 'rxjs/operators';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { Subject } from 'rxjs';
+import { debounceTime, finalize } from 'rxjs/operators';
 import { BRAZIL_UFS } from '../../core/constants/brazil-ufs';
+import { ELEICAO_ANOS } from '../../core/constants/eleicao-years';
 import type { CandidateListItem, DatasetStats } from '../../core/models/candidate.models';
+import { partidoColor, partidoTextoSobre } from '../../core/constants/colors';
 import { EleicaoApiService } from '../../core/services/eleicao-api.service';
+
+/** Traduz os códigos de situação do TSE para texto compreensível na tela. */
+const SITUACOES_TSE: Record<string, string> = {
+  APTO: 'APTO — pode concorrer',
+  INAPTO: 'INAPTO — não pode concorrer',
+  '#NE': '#NE — não eleito(a) nesta eleição',
+};
 
 @Component({
   selector: 'app-consulta-page',
@@ -21,11 +33,25 @@ import { EleicaoApiService } from '../../core/services/eleicao-api.service';
   styleUrl: './consulta.page.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ConsultaPageComponent implements OnInit {
+export class ConsultaPageComponent implements OnInit, OnDestroy {
   private readonly api = inject(EleicaoApiService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+
+  /** Dispara buscas automáticas agrupadas enquanto o usuário ajusta os filtros. */
+  private readonly filtroAlterado = new Subject<void>();
+  // Debounce agrupa teclas/alterações seguidas; sem distinctUntilChanged porque
+  // o payload void faria o RxJS descartar toda emissão após a primeira.
+  private readonly filtroSubscription = this.filtroAlterado
+    .pipe(debounceTime(300))
+    .subscribe(() => this.buscar());
 
   readonly ufs = BRAZIL_UFS;
-  readonly anosEleicao = [2026, 2024, 2022, 2020, 2018, 2016, 2014];
+  /** Mesmo catálogo das demais telas: o que se sincroniza é o que se consulta. */
+  readonly anosEleicao: readonly number[] = ELEICAO_ANOS;
+
+  /** Linhas por página; a paginação existe porque a API devolve no máximo 100. */
+  readonly pageSize = 50;
 
   filtroNome = '';
   filtroUf = '';
@@ -39,9 +65,11 @@ export class ConsultaPageComponent implements OnInit {
   readonly partidos = signal<{ sigla: string; nome: string }[]>([]);
 
   readonly stats = signal<Pick<DatasetStats, 'totalCandidatos' | 'totalRegistrosCassacao'> | null>(null);
+  readonly statsLoading = signal(true);
   readonly statsError = signal<string | null>(null);
   readonly items = signal<CandidateListItem[]>([]);
   readonly total = signal(0);
+  readonly pagina = signal(0);
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
   readonly selected = signal<CandidateListItem | null>(null);
@@ -52,13 +80,30 @@ export class ConsultaPageComponent implements OnInit {
   >([]);
   readonly hasSearched = signal(false);
 
+  readonly totalPages = computed(() => Math.max(1, Math.ceil(this.total() / this.pageSize)));
+
+  /** "Exibindo 1–50 de 3.655 resultado(s)" — deixa claro que há mais páginas. */
+  readonly resumoPaginacao = computed(() => {
+    const total = this.total();
+    if (!total) return '0 resultados';
+    const inicio = this.pagina() * this.pageSize + 1;
+    const fim = Math.min(total, (this.pagina() + 1) * this.pageSize);
+    return `Exibindo ${inicio}–${fim} de ${total} resultado(s)`;
+  });
+
   ngOnInit(): void {
+    const veioDaUrl = this.restaurarEstadoDaUrl();
+
     this.api.getStats().subscribe({
       next: (stats) => {
         this.stats.set(stats);
         this.statsError.set(null);
+        this.statsLoading.set(false);
       },
-      error: () => this.statsError.set('Não foi possível carregar o resumo da base. Tente atualizar a página.'),
+      error: () => {
+        this.statsError.set('Não foi possível carregar o resumo da base. Tente atualizar a página.');
+        this.statsLoading.set(false);
+      },
     });
 
     this.api.getCandidateFilters().subscribe({
@@ -70,9 +115,81 @@ export class ConsultaPageComponent implements OnInit {
         // O filtro continua funcional mesmo se as opções não carregarem.
       },
     });
+
+    // Link compartilhado já abre com os resultados carregados.
+    if (veioDaUrl) this.buscar();
   }
 
+  ngOnDestroy(): void {
+    this.filtroSubscription.unsubscribe();
+  }
+
+  /**
+   * Restaura os filtros da URL (?q=&uf=&ano=&cargo=&partido=&risk=1).
+   * @returns true quando a URL trazia ao menos um filtro (merece busca inicial).
+   */
+  private restaurarEstadoDaUrl(): boolean {
+    const params = this.route.snapshot.queryParamMap;
+
+    const q = params.get('q');
+    if (q) this.filtroNome = q;
+
+    const uf = (params.get('uf') ?? '').toUpperCase();
+    if (uf) this.filtroUf = uf;
+
+    const anoRaw = params.get('ano');
+    const ano = Number(anoRaw);
+    if (anoRaw && this.anosEleicao.includes(ano)) this.filtroAno = ano;
+
+    const cargo = params.get('cargo');
+    if (cargo) this.filtroCargo = cargo;
+
+    const partido = params.get('partido');
+    if (partido) this.filtroPartido = partido;
+
+    this.apenasRisco = params.get('risk') === '1';
+
+    return Boolean(q || uf || anoRaw || cargo || partido || this.apenasRisco);
+  }
+
+  /** Mantém a URL em espelho com os filtros (replaceUrl: sem poluir o histórico). */
+  private persistirUrl(): void {
+    void this.router.navigate([], {
+      replaceUrl: true,
+      queryParams: {
+        q: this.filtroNome.trim() || null,
+        uf: this.filtroUf || null,
+        ano: this.filtroAno,
+        cargo: this.filtroCargo || null,
+        partido: this.filtroPartido || null,
+        risk: this.apenasRisco ? '1' : null,
+      },
+    });
+  }
+
+  /** Chamado a cada alteração de filtro (com debounce agrupado de 300 ms). */
+  agendarBusca(): void {
+    this.filtroAlterado.next();
+  }
+
+
+  /** Busca pela ação explícita do usuário (botão, Enter ou checkbox). */
   buscar(): void {
+    this.pagina.set(0);
+    this.persistirUrl();
+    this.executarBusca();
+  }
+
+  irParaPagina(pagina: number): void {
+    const alvo = Math.min(Math.max(pagina, 0), this.totalPages() - 1);
+    if (alvo === this.pagina()) return;
+    this.pagina.set(alvo);
+    this.selected.set(null);
+    this.cassacoes.set([]);
+    this.executarBusca();
+  }
+
+  private executarBusca(): void {
     this.hasSearched.set(true);
     this.error.set(null);
     this.selected.set(null);
@@ -87,8 +204,8 @@ export class ConsultaPageComponent implements OnInit {
         partido: this.filtroPartido || undefined,
         ano: this.filtroAno ?? undefined,
         onlyRisk: this.apenasRisco,
-        limit: 50,
-        offset: 0,
+        limit: this.pageSize,
+        offset: this.pagina() * this.pageSize,
       })
       .pipe(finalize(() => this.loading.set(false)))
       .subscribe({
@@ -130,8 +247,25 @@ export class ConsultaPageComponent implements OnInit {
     this.detailError.set(null);
   }
 
+  /** Cor de fundo da célula do partido (usa a cor oficial da sigla). */
+  partidoCor(sigla: string | null | undefined): string {
+    return sigla ? partidoColor(sigla).primary : 'transparent';
+  }
+
+  /** Cor do texto sobre a célula do partido (contraste automático). */
+  partidoTexto(sigla: string | null | undefined): string {
+    return sigla ? partidoTextoSobre(sigla) : 'var(--color-text)';
+  }
+
   temAlerta(row: CandidateListItem): boolean {
     return Boolean(row.temCassacao) || this.situacaoSugereCassacao(row.situacao);
+  }
+
+  /** Legenda humana para os códigos de situação do TSE (mantém o código original). */
+  situacaoLegenda(situacao: string | null | undefined): string {
+    if (!situacao) return '—';
+    const chave = situacao.trim().toUpperCase();
+    return SITUACOES_TSE[chave] ?? situacao;
   }
 
   private situacaoSugereCassacao(situacao: string | null | undefined): boolean {

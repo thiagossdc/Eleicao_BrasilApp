@@ -17,4 +17,10 @@ export const env = {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean),
+  /**
+   * Token opcional para POST /api/sync. Quando definido, a importação exige
+   * `Authorization: Bearer <token>` ou header `x-sync-token`. Sem a variável a
+   * rota continua aberta (compatibilidade com ambientes locais).
+   */
+  syncToken: process.env.SYNC_TOKEN?.trim() || null,
 };

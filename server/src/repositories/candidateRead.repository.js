@@ -62,7 +62,6 @@ const baseSelect = `
     c.sq_candidato AS sqCandidato,
     c.nm_candidato AS nome,
     c.nm_urna AS nomeUrna,
-    c.nr_cpf AS cpf,
     c.ds_cargo AS cargo,
     c.sg_partido AS partido,
     c.nm_partido AS nomePartido,

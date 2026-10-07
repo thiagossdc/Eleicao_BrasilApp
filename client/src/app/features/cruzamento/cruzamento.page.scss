@@ -206,6 +206,31 @@
   font-size: 1.05rem;
 }
 
+.cruzamento__quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.cruzamento__quick button {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cruzamento__muted {
+  color: var(--color-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 .visual-tabs {
   display: flex;
   gap: 0.5rem;
@@ -215,7 +240,8 @@
 }
 
 .visual-tabs button {
-  padding: 0.6rem 0.3rem;
+  /* Altura ≈ 44px para atender ao alvo mínimo de toque. */
+  padding: 0.75rem 0.5rem;
   border: 0;
   border-bottom: 2px solid transparent;
   background: transparent;
@@ -631,6 +657,43 @@
   .municipal-map {
     height: 55vh;
     min-height: 360px;
+.cruzamento__stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.75rem;
+  margin: 0.75rem 0 0.6rem;
+}
+
+.cruzamento__stat {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0.6rem 0.75rem;
+}
+
+.cruzamento__stat-value {
+  display: block;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--color-brand);
+  line-height: 1.2;
+}
+
+.cruzamento__stat-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-top: 0.15rem;
+}
+
+@media (max-width: 900px) {
+  .cruzamento__stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
   }
 
 }
@@ -645,4 +708,47 @@
     grid-template-columns: minmax(72px, 0.8fr) minmax(48px, 1.3fr) minmax(48px, auto);
     gap: 0.5rem;
   }
+
+/* Selo do partido/ideologia + resumo em linguagem simples (cores por partido). */
+.cruzamento__target {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.party-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid color-mix(in srgb, currentcolor 30%, transparent);
+}
+
+.party-chip--map {
+  margin-left: auto;
+}
+
+.cruzamento__plain {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0.7rem 0.8rem;
+  border-left: 3px solid var(--color-accent);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 0.86rem;
+  line-height: 1.55;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+
+.cruzamento__stat-hint {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 }

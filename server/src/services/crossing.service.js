@@ -405,14 +405,15 @@ export async function getCrossingCatalog(scope) {
 export async function getCrossingCandidates({ ano, uf, cargo, turno, partido, busca }) {
   const scope = assertScope({ ano, uf });
   const catalog = await getVoteCatalog(scope);
-  const round = Number(turno);
-  if (!catalog.cargos.includes(cargo) || !catalog.turnos.includes(round)) {
-    throw new HttpError(400, 'Cargo ou turno inválido para a eleição e abrangência selecionadas.');
-  }
+  // Sem trava: cargo/turno ausentes usam o primeiro disponível do catálogo em vez de barrar (400).
+  const office = cargo || catalog.cargos[0] || '';
+  const round = turno == null || !Number.isFinite(Number(turno))
+    ? (catalog.turnos[0] ?? null)
+    : Number(turno);
   const normalizedQuery = normalizeName(busca);
   const candidates = catalog.candidatos.filter((candidate) =>
-    candidate.cargo === cargo &&
-    candidate.turno === round &&
+    candidate.cargo === office &&
+    (round == null || candidate.turno === round) &&
     (!partido || candidate.partido === partido) &&
     (!normalizedQuery || normalizeName(`${candidate.nome} ${candidate.partido}`).includes(normalizedQuery)),
   );
@@ -449,7 +450,14 @@ export async function getMunicipalMap(uf) {
 async function buildCrossingResults(input, targetType) {
   const scope = assertScope(input);
   const catalog = await getVoteCatalog(scope);
-  const indicator = input.indicador;
+  // Sem trava: cargo, turno e indicador ausentes/inválidos caem no padrão em vez de barrar (400).
+  const office = input.cargo || catalog.cargos[0] || '';
+  const round = input.turno == null || !Number.isFinite(Number(input.turno))
+    ? (catalog.turnos[0] ?? null)
+    : Number(input.turno);
+  const indicator = INDICATORS[input.indicador] || input.indicador === 'pibPerCapita'
+    ? input.indicador
+    : 'populacao';
   const indicatorKeys = [...Object.keys(INDICATORS), 'pibPerCapita'];
   if (!indicatorKeys.includes(indicator)) {
     throw new HttpError(400, 'Indicador IBGE inválido.');
@@ -459,14 +467,14 @@ async function buildCrossingResults(input, targetType) {
   const [municipalities, indicators] = await Promise.all([municipalitiesPromise, indicatorsPromise]);
   const municipalityById = new Map([...municipalities.values()].map((municipality) => [municipality.id, municipality]));
   const candidateRows = catalog.rows.filter(
-    (row) => row.cargo === input.cargo && row.turno === Number(input.turno),
+    (row) => row.cargo === office && (round == null || row.turno === round),
   );
   const municipalTotals = new Map();
   const matchedMunicipalities = new Set();
   const targetCandidates = catalog.candidatos.filter(
     (row) =>
-      row.cargo === input.cargo &&
-      row.turno === Number(input.turno) &&
+      row.cargo === office &&
+      (round == null || row.turno === round) &&
       (targetType === 'candidato'
         ? row.sqCandidato === String(input.sqCandidato)
         : row.partido === String(input.partido)),
@@ -525,8 +533,8 @@ async function buildCrossingResults(input, targetType) {
   return {
     ano: scope.ano,
     uf: scope.uf,
-    cargo: input.cargo,
-    turno: Number(input.turno),
+    cargo: office,
+    turno: round,
     alvo,
     indicador: indicators.metadata[indicator],
     indicadores: indicators.metadata,

@@ -8,7 +8,11 @@
   "scripts": {
     "server": "npm run dev --prefix server",
     "client": "npm start --prefix client",
-    "dev": "concurrently -n api,web -c blue,green \"npm run server\" \"npm run client\""
+    "dev": "concurrently -n api,web -c blue,green \"npm run server\" \"npm run client\"",
+    "build": "npm run build --prefix client",
+    "test": "npm test --prefix server && npm run test:client",
+    "test:client": "npm test --prefix client -- --watch=false --browsers=ChromeHeadless",
+    "lint": "npm run lint --prefix client && npm run lint --prefix server"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

@@ -13,7 +13,6 @@ export interface CandidateListItem {
   sqCandidato: string;
   nome: string;
   nomeUrna: string | null;
-  cpf: string | null;
   cargo: string | null;
   partido: string | null;
   nomePartido: string | null;

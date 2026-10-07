@@ -2,11 +2,24 @@ import { HttpError } from '../../errors/httpError.js';
 
 const TRUE_VALUES = new Set(['1', 'true', 'yes', 'sim']);
 
+/**
+ * Converte parâmetro de query opcional em inteiro.
+ *
+ * Regras:
+ * - ausente ou vazio → `undefined` (o chamador aplica o padrão dele);
+ * - presente mas inválido → 400. Antes o valor era descartado em silêncio e a
+ *   requisição seguia com filtro errado (ex.: `?ano=abc` listava todos os anos).
+ */
 export function parseOptionalInt(value, label) {
   if (value === undefined || value === null || value === '') return undefined;
-  const n = Number.parseInt(String(value), 10);
+  const text = String(value).trim();
+  if (text === '') return undefined;
+  if (!/^-?\d+$/.test(text)) {
+    throw new HttpError(400, `Parâmetro ${label || 'numérico'} inválido: envie um número inteiro.`);
+  }
+  const n = Number.parseInt(text, 10);
   if (!Number.isFinite(n)) {
-    throw new HttpError(400, `Parâmetro inválido: ${label}`);
+    throw new HttpError(400, `Parâmetro ${label || 'numérico'} inválido: envie um número inteiro.`);
   }
   return n;
 }

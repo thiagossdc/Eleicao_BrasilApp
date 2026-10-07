@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar dependências da API
+        run: npm ci --prefix server
+
+      - name: Testes da API
+        run: npm test --prefix server
+
+      - name: Instalar dependências do frontend
+        run: npm ci --prefix client
+
+      - name: Testes do frontend
+        run: npm test --prefix client -- --watch=false --browsers=ChromeHeadless
+
+      - name: Build de produção
+        run: npm run build --prefix client

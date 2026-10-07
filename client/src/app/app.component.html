@@ -1,4 +1,4 @@
-<div class="app-shell">
+<div class="app-shell" [attr.inert]="showTutorialIntro() ? '' : null">
   <header class="app-shell__header">
     <div class="app-shell__identity">
       <a routerLink="/cruzamento" class="app-shell__brand">
@@ -40,12 +40,16 @@
 </div>
 
 @if (showTutorialIntro()) {
+  <!-- Backdrop e diálogo fecham via Esc e botão X; clique é só atalho. -->
   <div class="tutorial-intro" (click)="closeTutorialIntro()" role="presentation">
     <div
       class="tutorial-intro__dialog"
+      #introDialog
+      tabindex="-1"
       role="dialog"
       aria-modal="true"
       aria-labelledby="tutorial-intro-title"
+      aria-describedby="tutorial-intro-desc"
       (click)="$event.stopPropagation()"
     >
       <button
@@ -59,7 +63,7 @@
       </button>
       <span class="tutorial-intro__badge">Novo por aqui?</span>
       <h2 id="tutorial-intro-title">Bem-vindo(a) ao Eleição Limpa - Brasil</h2>
-      <p>
+      <p id="tutorial-intro-desc">
         Esta aplicação consulta candidaturas e cruza votações do TSE com indicadores do IBGE,
         usando apenas dados públicos oficiais.
       </p>

@@ -54,7 +54,7 @@ Servicos esperados:
 
 - `GET /api/health` - status da API
 - `GET /api/stats` - totais no banco local
-- `GET /api/candidates?nome=&uf=SP&ano=2022&cargo=Prefeito&partido=PT&apenasRisco=&limit=&offset=` - busca de candidatos
+- `GET /api/candidates?nome=&uf=SP&ano=2022&cargo=Prefeito&partido=PT&apenasRisco=&limit=&offset=` - busca de candidatos (parâmetro de busca: `q` — `nome` é aceito como alias para compatibilidade)
 - `GET /api/candidates/options` - cargos e partidos disponiveis para os filtros da consulta
 - `GET /api/candidates/:sqCandidato?uf=SP&ano=2022` - detalhe + cassacoes
 - `GET /api/crossings/options?ano=2022&uf=BRASIL` - cargos, turnos e partidos disponiveis
@@ -96,6 +96,7 @@ curl -X POST "http://localhost:3000/api/sync" \
 - `CORS_ORIGINS` (padrao `http://localhost:4200`)
 - `GEMINI_API_KEY` (opcional, habilita o tira-duvidas; mantenha a chave somente no servidor)
 - `GEMINI_MODEL` (opcional, padrao `gemini-2.5-flash`)
+- `SYNC_TOKEN` (opcional) — exige `Authorization: Bearer <token>` ou header `x-sync-token` nas requisições `POST /api/sync`; sem a variável, a rota continua aberta (compatibilidade com ambientes locais)
 
 O tira-duvidas recusa perguntas fora do escopo eleitoral e da aplicacao, limita perguntas a 500 caracteres e a oito requisicoes por IP, por processo, a cada 15 minutos. No nivel gratuito da API Gemini, as perguntas podem ser usadas pelo Google para melhorar os produtos; a interface informa essa condicao antes do envio. Nao envie dados pessoais. Sem `GEMINI_API_KEY`, os demais recursos continuam disponiveis e o assistente fica desativado.
 
@@ -122,3 +123,19 @@ npm rebuild better-sqlite3 --prefix server
 ```bash
 npm run build --prefix client
 ```
+
+## Comportamento padrão do Cruzamento
+
+- **Cargo e turno só ficam vazios no primeiro paint.** Enquanto o catálogo do TSE não chega, os selects mostram o placeholder `"Buscando cargos do TSE…"` / `"Buscando turnos do TSE…"` (diretamente no campo, sem externar um badge). Assim que o catálogo responder, os valores já vêm preenchidos e a lista é filtrada por um único clique.
+- **Carga sem trava:** o estado de carregamento do catálogo reflete nas placeholders de cargo e turno, para nunca se perder o contexto de onde o usuário está.
+- **Lista de espera do candidato (sem preenchimento automático):** com cargo/turno setados e sem resultado, o formulário mostra um bloco de estado:
+  - **Modo candidato** — remete ao usuário para escolher um candidato; ao lado, na horizontal, aparecem os **3 candidatos mais votados** como botões de um clique (`{{ nome }} · {{ votos }} votos`). O resultado só renderiza o alvo do candidato depois da escolha (ou de um deep-link que expresse explicitamente `candidato=<sqCandidato>`).
+  - **Modo partido** — indica que cargo/turno já estão pré-preenchidos e peça para escolher a sigla; se o cargo/turno não tiver partido, avisa `Nenhum partido disponível para este cargo/turno`.
+  - Se um dos filtros não tiver registros, avisa `Nenhum candidato disponível para este cargo/turno`.
+- **Deep-link para abrir um contexto específico:**
+
+  ```text
+  ?ano=2026&uf=SP&indicador=populacao&modo=partido&partido=PT&vis=map&escala=log
+  ```
+
+  O deep-link define o alvo remetente (cargo/turno/partido) e o formulário os preconta. O candidato só é carregado pela seleção no formulário (ou pelo deep-link `candidato=<sqCandidato>`).

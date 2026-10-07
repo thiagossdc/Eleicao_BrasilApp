@@ -5,6 +5,24 @@
     Para o arquivo nacional, escolha <strong>BRASIL</strong> (volume grande).
   </p>
 
+  <p class="sync__notice" role="note">
+    <strong>Onde os dados ficam:</strong> a importação grava no SQLite desta máquina/servidor.
+    Em implantações serverless (ex.: Vercel), o banco é reiniciado a cada nova instância e volta
+    ao arquivo semeado — use a sincronização em ambiente local ou com armazenamento persistente.
+    Se <strong>SYNC_TOKEN</strong> estiver configurado na API, informe o token abaixo.
+  </p>
+
+  <p class="sync__notice sync__notice--warn" role="note">
+    <strong>Limite de produção:</strong> na Vercel a função de API encerra após <strong>60 segundos</strong>,
+    então importações de bases grandes falham antes de concluir. Para sincronizar UFs ou o pacote
+    nacional, rode a API localmente (<code>npm run dev</code>).
+  </p>
+
+  <p class="sync__notice sync__notice--warn" role="note" *ngIf="uf === 'BRASIL'">
+    O pacote nacional é o maior do TSE: a importação pode levar vários minutos e o botão pede
+    confirmação antes de começar.
+  </p>
+
   <form class="sync__form" (ngSubmit)="enviar()">
     <label class="field">
       <span>Ano da eleição</span>
@@ -18,6 +36,19 @@
         <option value="BRASIL">BRASIL (arquivo nacional)</option>
         <option *ngFor="let u of ufs" [value]="u">{{ u }}</option>
       </select>
+    </label>
+    <label class="field">
+      <span>Token de sincronização (somente se a API exigir)</span>
+      <input
+        type="password"
+        name="syncToken"
+        [(ngModel)]="token"
+        autocomplete="off"
+        placeholder="SYNC_TOKEN configurado no servidor"
+      />
+      <small class="field__hint">
+        Deixe em branco quando a API não tem <code>SYNC_TOKEN</code>. O valor não é salvo.
+      </small>
     </label>
     <button type="submit" class="btn btn--primary" [disabled]="loading()">
       {{ loading() ? 'Sincronizando…' : 'Iniciar importação' }}

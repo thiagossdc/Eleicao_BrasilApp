@@ -1,4 +1,4 @@
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import type {
@@ -64,8 +64,14 @@ export class EleicaoApiService {
     return this.http.get<CandidateDetailResponse>(`${this.apiPrefix}/candidates/${sqCandidato}`, { params });
   }
 
-  syncTse(body: { ano: number; uf: string }): Observable<SyncResponse> {
-    return this.http.post<SyncResponse>(`${this.apiPrefix}/sync`, body);
+  /**
+   * Dispara a importação oficial do TSE. Quando a API está protegida por
+   * `SYNC_TOKEN`, o valor digitado na tela viaja como header `x-sync-token`.
+   */
+  syncTse(body: { ano: number; uf: string }, token?: string): Observable<SyncResponse> {
+    const trimmed = token?.trim();
+    const headers = trimmed ? new HttpHeaders().set('x-sync-token', trimmed) : undefined;
+    return this.http.post<SyncResponse>(`${this.apiPrefix}/sync`, body, headers ? { headers } : undefined);
   }
 
   getCrossingCatalog(ano: number, uf: string): Observable<CrossingCatalogResponse> {
@@ -98,6 +104,8 @@ export class EleicaoApiService {
   }): Observable<CrossingResultResponse> {
     let httpParams = new HttpParams();
     for (const [key, value] of Object.entries(params)) {
+      // Ignora vazios em vez de enviar "null"/"undefined" para a API.
+      if (value == null || value === '') continue;
       httpParams = httpParams.set(key, String(value));
     }
     return this.http.get<CrossingResultResponse>(`${this.apiPrefix}/crossings`, { params: httpParams });
@@ -113,6 +121,8 @@ export class EleicaoApiService {
   }): Observable<CrossingResultResponse> {
     let httpParams = new HttpParams();
     for (const [key, value] of Object.entries(params)) {
+      // Ignora vazios em vez de enviar "null"/"undefined" para a API.
+      if (value == null || value === '') continue;
       httpParams = httpParams.set(key, String(value));
     }
     return this.http.get<CrossingResultResponse>(`${this.apiPrefix}/crossings/party`, { params: httpParams });

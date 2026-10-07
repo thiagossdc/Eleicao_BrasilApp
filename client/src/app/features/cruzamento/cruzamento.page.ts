@@ -1,25 +1,62 @@
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, ElementRef, OnDestroy, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
 import { Subscription, timer } from 'rxjs';
 import * as L from 'leaflet';
 import { finalize, switchMap } from 'rxjs/operators';
 import { BRAZIL_UFS } from '../../core/constants/brazil-ufs';
+import { ELEICAO_ANOS } from '../../core/constants/eleicao-years';
 import type { AssistantAnswerResponse, CrossingCandidate, CrossingIndicator, CrossingParty, CrossingPoint, CrossingResultResponse, CrossingCatalogResponse, CrossingCandidatesResponse, MunicipalMapResponse } from '../../core/models/candidate.models';
 import { EleicaoApiService } from '../../core/services/eleicao-api.service';
+import { partidoColor, partidoRampa, partidoTextoSobre } from '../../core/constants/colors';
 
-interface AnalysisPoint extends CrossingPoint {
+/** Seleções vindas da URL compartilhada, aplicadas quando o catálogo chegar. */
+interface RestauracaoUrl {
+  cargo?: string;
+  turno?: number;
+  partido?: string;
+  candidato?: string;
+}
+
+/** Ponto municipal já com o valor do indicador e a escala (x) usada no cálculo. */
+export interface AnalysisPoint extends CrossingPoint {
   indicador: number;
   x: number;
 }
 
 interface AnalysisStats {
   n: number;
+  media: number;
+  mediana: number;
+  desvioPadrao: number;
+  variancia: number;
+  coeficienteVariacao: number;
+  minimo: number;
+  maximo: number;
+  q1: number;
+  q3: number;
+  amplitude: number;
+  /** Intervalo interquartil (Q3 − Q1): metade central dos municípios. */
+  iqr: number;
+  /** Municípios fora de [Q1 − 1,5·IQR, Q3 + 1,5·IQR] no % de votos. */
+  outliers: number;
   r: number;
   r2: number;
+  /** Correlação de postos (monotônica, robusta a outliers e a escala). */
+  spearman: number | null;
+  /** IC 95% de r via transformada z de Fisher (aproximação, n > 3). */
+  rLower: number | null;
+  rUpper: number | null;
+  /** Classificação didática da força: desprezível/fraca/moderada/forte/muito forte. */
+  forca: string;
   slope: number;
   intercept: number;
+  /** Erro-padrão residual (RMSE) da reta ajustada, em p.p. */
+  rmse: number;
   p: number;
+  skewness: number;
+  kurtosis: number;
 }
 
 interface PlotPoint extends AnalysisPoint {
@@ -64,11 +101,17 @@ const INDICATOR_OPTIONS = [
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CruzamentoPageComponent implements OnInit, OnDestroy {
-  private readonly api = inject(EleicaoApiService);
+  private readonly api: EleicaoApiService = inject(EleicaoApiService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   @ViewChild('municipalMap') private mapElement?: ElementRef<HTMLDivElement>;
   private map?: L.Map;
   private mapLayer?: L.GeoJSON;
   private mapUf = '';
+  /** UF já enquadrada no viewport; serve para reenquadrar ao trocar de estado. */
+  private mapFittedUf = '';
+  /** Enquadramento adiado porque o painel do mapa estava oculto na hora. */
+  private mapFitPending = false;
   private mapRequest?: Subscription;
   private catalogRequest?: Subscription;
   private candidateRequest?: Subscription;
@@ -80,7 +123,7 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
   private readonly candidateCache = new Map<string, { expiresAt: number; value: CrossingCandidatesResponse }>();
   private readonly resultCache = new Map<string, { expiresAt: number; value: CrossingResultResponse }>();
 
-  readonly anos = [2026, 2024, 2022, 2020, 2018, 2016];
+  readonly anos: readonly number[] = ELEICAO_ANOS;
   readonly ufs = ['BRASIL', ...BRAZIL_UFS];
   readonly indicadores = INDICATOR_OPTIONS;
   readonly gruposIndicadores = [...new Set(INDICATOR_OPTIONS.map((option) => option.group))].map((name) => ({
@@ -91,6 +134,9 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
   readonly candidateOptions = signal<CrossingCandidate[]>([]);
   readonly partyOptions = signal<CrossingParty[]>([]);
   readonly availableCandidateCount = signal(0);
+  /** Marcadores de carregamento do catálogo, usados nos placeholders das seleções. */
+  readonly carregandoCargos = computed(() => this.loadingCatalog());
+  readonly carregandoTurnos = computed(() => this.loadingCatalog());
   readonly cargos = signal<string[]>([]);
   readonly turnos = signal<number[]>([]);
   readonly result = signal<CrossingResultResponse | null>(null);
@@ -117,8 +163,21 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
   readonly barChartPlan = computed<BarChartPlan>(() => createBarChart(this.analyzedPoints()));
 
   barChartColor(index: number): string {
-    return BAR_CHART_PALETTE[Math.min(BAR_CHART_PALETTE.length - 1, index % BAR_CHART_PALETTE.length)];
+    const rampa = this.rampaPartido();
+    return rampa[Math.min(rampa.length - 1, index % rampa.length)];
   }
+
+  /** Sigla que colore a análise: partido direto ou partido do candidato. */
+  readonly siglaColorida = computed(() => {
+    const data = this.result();
+    if (this.modoAnalise === 'partido') return data?.alvo.nome ?? this.partido ?? null;
+    return data?.alvo.partido ?? null;
+  });
+
+
+
+  /** Rampa claro → cor do partido p/ mapa, dispersão e barras por faixa. */
+  readonly rampaPartido = computed(() => partidoRampa(this.siglaColorida(), 5));
 
   readonly quintileSummary = computed(() => {
     const groups = this.quintiles();
@@ -170,10 +229,19 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
   candidatoFiltro = '';
   indicador = 'populacao';
 
+  /**
+   * Espelho do candidato selecionado (nome/partido/votos), mantido mesmo quando
+   * o filtro de busca o tira da lista: assim o <select> continua exibindo quem
+   * está analisado em vez de voltar ao placeholder vazio.
+   */
+  private candidatoSnapshot: CrossingCandidate | null = null;
+
+  /** Estado lido da URL compartilhada, aplicado quando o catálogo responder. */
+  private restauracaoUrl: RestauracaoUrl | null = null;
+
   ngOnInit(): void {
+    this.restaurarEstadoDaUrl();
     this.carregarCatalogo();
-    // Mapa neutro/vazio imediato, sem depender de candidato/cargo.
-    this.carregarMalha();
     this.api.getAssistantStatus().subscribe({
       next: (status) => {
         this.assistantEnabled.set(status.enabled);
@@ -196,10 +264,73 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
     this.map = undefined;
   }
 
+  /**
+   * Restaura o estado da URL (?ano=&uf=&cargo=&turno=&partido=&candidato=&...)
+   * para que análises possam ser compartilhadas. Valores inválidos caem nos
+   * padrões; cargo/turno/partido/candidato são aplicados em aplicarCatalogo,
+   * pois dependem do catálogo do TSE.
+   */
+  private restaurarEstadoDaUrl(): void {
+    const params = this.route.snapshot.queryParamMap;
+
+    const ano = Number(params.get('ano'));
+    if (params.get('ano') && this.anos.includes(ano)) this.ano = ano;
+
+    const uf = (params.get('uf') ?? '').toUpperCase();
+    if (uf && this.ufs.includes(uf)) this.uf = uf;
+
+    const indicador = params.get('indicador');
+    if (indicador && this.indicadores.some((option) => option.key === indicador)) {
+      this.indicador = indicador;
+    }
+
+    const modo = params.get('modo');
+    if (modo === 'partido' || modo === 'candidato') this.modoAnalise = modo;
+
+    const vis = params.get('vis');
+    if (vis === 'overview' || vis === 'scatter' || vis === 'map' || vis === 'patterns') {
+      this.activeView.set(vis);
+    }
+
+    this.logScale.set(params.get('escala') === 'log');
+
+    const turnoStr = params.get('turno');
+    const turno = turnoStr ? Number(turnoStr) : NaN;
+    this.restauracaoUrl = {
+      cargo: params.get('cargo') ?? undefined,
+      turno: Number.isInteger(turno) ? turno : undefined,
+      partido: params.get('partido') ?? undefined,
+      candidato: params.get('candidato') ?? undefined,
+    };
+  }
+
+  /** Mantém a URL em espelho com o estado atual (replaceUrl: sem poluir o histórico). */
+  private persistirUrl(): void {
+    const candidato = this.modoAnalise === 'candidato' && this.candidato ? this.candidato : null;
+    const partido = this.partido && this.partido !== 'TODOS' ? this.partido : null;
+
+    void this.router.navigate([], {
+      replaceUrl: true,
+      queryParams: {
+        ano: this.ano,
+        uf: this.uf,
+        cargo: this.cargo || null,
+        turno: this.turno ?? null,
+        modo: this.modoAnalise,
+        partido: this.modoAnalise === 'partido' ? partido : null,
+        candidato,
+        indicador: this.indicador,
+        vis: this.activeView(),
+        escala: this.logScale() ? 'log' : null,
+      },
+    });
+  }
+
   partidosDisponiveis(): CrossingParty[] {
     return this.parties().filter((party) =>
       (!this.cargo || party.cargo === this.cargo) &&
-      (this.turno == null || party.turno === this.turno),
+      (this.turno == null || party.turno === this.turno) &&
+      party.sigla,
     );
   }
 
@@ -210,46 +341,66 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
     this.loadingCandidates.set(false);
     this.partido = this.modoAnalise === 'partido' ? '' : 'TODOS';
     this.candidato = '';
+    this.candidatoSnapshot = null;
     this.candidateOptions.set([]);
     this.availableCandidateCount.set(0);
     this.result.set(null);
+    // Completa cargo/turno com o padrão do catálogo para não travar a troca de modo.
+    if (!this.cargo || !this.cargos().includes(this.cargo)) this.cargo = this.cargos()[0] ?? '';
+    if (this.turno == null || !this.turnos().includes(this.turno)) this.turno = this.turnos()[0] ?? null;
     this.atualizarOpcoesSelecao();
-    // Modo partido dispara se já houver seleção válida; modo candidato recarrega lista se cargo/turno ok.
-    if (this.modoAnalise === 'partido' && this.partido && this.cargo && this.turno != null) {
-      this.carregarCruzamento();
-    } else if (this.modoAnalise === 'candidato' && this.cargo && this.turno != null) {
+    if (this.modoAnalise === 'candidato' && this.cargo && this.turno != null) {
       this.carregarOpcoesCandidatos();
-    } else if (this.activeView() === 'map') {
-      this.renderMap();
+    } else {
+      this.carregarCruzamento();
     }
+    this.persistirUrl();
   }
 
   mudarPartido(): void {
     this.candidatoFiltro = '';
     this.candidato = '';
+    this.candidatoSnapshot = null;
     this.result.set(null);
+    // A sigla já foi atualizada pelo ngModel: espelha na URL antes dos retornos.
+    this.persistirUrl();
     // Não refiltra partyOptions aqui: o select já reflete o catálogo; refiltrar esvaziaria
     // a lista no modo partido quando cargo/turno ainda estão vazios.
-    // No modo candidato, trocar o partido recarrega a lista (sem auto-selecionar ninguém).
+    // No modo candidato, trocar o partido recarrega a lista (sem travar quem já estava escolhido).
     if (this.modoAnalise === 'candidato' && this.cargo && this.turno != null) {
       this.carregarOpcoesCandidatos();
       return;
     }
     if (this.modoAnalise === 'partido') {
-      // No modo partido dispara quando há seleção completa; sem partido/cargo/turno mantém mapa vazio.
-      if (this.partido && this.cargo && this.turno != null) this.carregarCruzamento();
-      else if (this.activeView() === 'map') this.renderMap();
+      this.carregarCruzamento();
       return;
     }
     if (this.activeView() === 'map') this.renderMap();
   }
 
   mudarCandidato(): void {
+    // Registra quem foi escolhido (para o select não sumir se o filtro mudar).
+    const escolhido = this.candidateOptions().find((c) => c.sqCandidato === this.candidato);
+    if (escolhido) this.candidatoSnapshot = escolhido;
     this.carregarCruzamento();
+    this.persistirUrl();
+  }
+
+  /** Aplica o candidato clicado no chip da lista de espera (ou na lista principal). */
+  selecionarCandidato(sqCandidato: string): void {
+    this.candidato = sqCandidato;
+    this.mudarCandidato();
+  }
+
+  /** Escala do gráfico (linear/log) — também fica na URL para compartilhar. */
+  mudarEscala(escalaLog: boolean): void {
+    this.logScale.set(escalaLog);
+    this.persistirUrl();
   }
 
   filtrarCandidatos(): void {
-    this.result.set(null);
+    // Não limpa o resultado atual: digitar no filtro só atualiza a lista de
+    // opções; a análise em tela permanece até o usuário trocar de candidato.
     this.carregarOpcoesCandidatos(true);
   }
 
@@ -257,6 +408,9 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
     this.catalogRequest?.unsubscribe();
     this.candidateRequest?.unsubscribe();
     this.crossingRequest?.unsubscribe();
+    // Foco imediato no estado/abrangência escolhido, sem esperar (nem depender) do catálogo do TSE.
+    this.carregarMalha();
+    this.persistirUrl();
     const requestId = ++this.catalogLoadId;
     const cacheKey = `${this.ano}|${this.uf}`;
     this.loadingCatalog.set(true);
@@ -277,6 +431,7 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
     this.cargo = '';
     this.turno = null;
     this.candidato = '';
+    this.candidatoSnapshot = null;
     this.partido = 'TODOS';
     this.candidatoFiltro = '';
 
@@ -305,18 +460,45 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
     this.parties.set(catalog.partidos);
     this.cargos.set(catalog.cargos);
     this.turnos.set(catalog.turnos);
-    // Por default nada é pré-selecionado: título genérico, sem candidato/partido/cargo.
-    this.cargo = '';
-    this.turno = null;
-    this.partido = this.modoAnalise === 'partido' ? '' : 'TODOS';
-    this.candidato = '';
+    const restaurado = this.restauracaoUrl;
+    this.restauracaoUrl = null;
+
+    // Sem travas: pré-seleciona o primeiro cargo/turno do catálogo — mas o que
+    // veio na URL compartilhada vale, quando ainda existe neste catálogo.
+    this.cargo =
+      restaurado?.cargo && catalog.cargos.includes(restaurado.cargo)
+        ? restaurado.cargo
+        : catalog.cargos[0] ?? '';
+    this.turno =
+      restaurado?.turno != null && catalog.turnos.includes(restaurado.turno)
+        ? restaurado.turno
+        : catalog.turnos[0] ?? null;
+    const partidoRestaurado =
+      restaurado?.partido &&
+      catalog.partidos.some(
+        (party) =>
+          party.sigla === restaurado.partido &&
+          party.cargo === this.cargo &&
+          party.turno === this.turno,
+      )
+        ? restaurado.partido
+        : undefined;
+    this.partido = this.modoAnalise === 'partido' ? (partidoRestaurado ?? '') : 'TODOS';
+    // O candidato da URL é validado contra a lista ao chegar (aplicarOpcoesCandidatos).
+    this.candidato = this.modoAnalise === 'candidato' ? (restaurado?.candidato ?? '') : '';
+    this.candidatoSnapshot = null;
     this.hasLoadedCatalog.set(true);
     this.atualizarOpcoesSelecao();
     this.candidateOptions.set([]);
     this.availableCandidateCount.set(0);
     this.result.set(null);
-    // Mapa neutro/vazio por default (sem candidato/cargo), mas sempre visível.
-    this.carregarMalha();
+    if (this.modoAnalise === 'candidato' && this.cargo && this.turno != null) {
+      this.carregarOpcoesCandidatos();
+    } else if (this.modoAnalise === 'partido' && this.partido) {
+      // Análise por partido vinda de link compartilhado: carrega direto.
+      this.carregarCruzamento();
+    }
+    this.persistirUrl();
   }
 
   filtrosMudaram(): void {
@@ -325,46 +507,46 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
     this.candidateRequest?.unsubscribe();
     this.candidateLoadId += 1;
     this.loadingCandidates.set(false);
-    this.candidato = '';
-    // Se o cargo atual sumiu do catálogo (troca de ano/UF), reseta para forçar escolha válida.
-    if (this.cargo && !this.cargos().includes(this.cargo)) {
-      this.cargo = '';
-      this.turno = null;
-      if (this.modoAnalise === 'partido') this.partido = '';
-    }
+    // Sem trava: completa com o primeiro cargo/turno do catálogo quando a seleção ficou vazia.
+    if (!this.cargo || !this.cargos().includes(this.cargo)) this.cargo = this.cargos()[0] ?? '';
+    if (this.turno == null || !this.turnos().includes(this.turno)) this.turno = this.turnos()[0] ?? null;
     this.atualizarOpcoesSelecao();
     // Se o partido selecionado não existe neste cargo/turno, reseta sem esvaziar a lista.
     if (this.modoAnalise === 'partido' && this.partido &&
         !this.partyOptions().some((p) => p.sigla === this.partido)) {
       this.partido = '';
     }
-    // Cargo/turno definidos liberam a lista de candidatos (modo candidato) sem auto-selecionar.
-    if (this.modoAnalise === 'candidato' && this.cargo && this.turno != null) {
+    if (this.modoAnalise === 'candidato') {
+      // Cargo/turno mudaram: o sqCandidato anterior pertence a outra lista e
+      // não deve sobreviver (senão a análise ficaria com alvo de outro cargo).
+      this.candidato = '';
+      this.candidatoSnapshot = null;
       this.carregarOpcoesCandidatos();
     } else {
       this.candidateOptions.set([]);
       this.availableCandidateCount.set(0);
-    }
-    // Modo partido com seleção completa dispara a análise.
-    if (this.modoAnalise === 'partido' && this.partido && this.cargo && this.turno != null) {
       this.carregarCruzamento();
     }
     // Mesmo vazio, a malha reage à UF/abrangência; o overlay só aparece com análise.
     if (!this.mapData() || this.mapUf !== this.uf) this.carregarMalha();
     else if (this.activeView() === 'map') this.renderMap();
+    this.persistirUrl();
   }
 
   carregarCruzamento(): void {
     this.crossingRequest?.unsubscribe();
     const requestId = ++this.crossingLoadId;
-    if (!this.cargo || this.turno == null ||
-        (this.modoAnalise === 'candidato' && !this.candidato) ||
-        (this.modoAnalise === 'partido' && !this.partido)) {
+    // Sem preencher candidato por default: a lista só se aplica quando o usuário seleciona.
+    if (!this.cargo || !this.cargos().includes(this.cargo)) this.cargo = this.cargos()[0] ?? '';
+    if (this.turno == null || !this.turnos().includes(this.turno)) this.turno = this.turnos()[0] ?? null;
+    const target = this.modoAnalise === 'partido' ? this.partido : this.candidato;
+    if (!this.cargo || this.turno == null || !target) {
       this.result.set(null);
       this.loadingResult.set(false);
       return;
     }
-    const target = this.modoAnalise === 'partido' ? this.partido : this.candidato;
+    // Reflete na URL o alvo efetivamente usado (inclusive o pré-selecionado).
+    this.persistirUrl();
     const cacheKey = [
       this.ano, this.uf, this.cargo, this.turno, this.modoAnalise, target, this.indicador,
     ].join('|');
@@ -404,6 +586,7 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
             this.resultCache.delete(this.resultCache.keys().next().value!);
           }
           this.result.set(this.aplicarIndicador(result, this.indicador));
+          this.espelharCandidatoAnalisado(result);
           if (this.activeView() === 'map') {
             if (this.mapData() && this.mapUf === this.uf) this.renderMap();
             else this.carregarMalha();
@@ -425,12 +608,64 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
   resumoRelacao(): string {
     const summary = this.stats();
     if (!summary) return 'Ainda não há dados suficientes para comparar este fator.';
-    if (Math.abs(summary.r) < 0.1) {
-      return 'Neste recorte, a relação linear entre o fator e o percentual de votos está próxima de zero.';
-    }
-    return summary.r > 0
-      ? 'Neste recorte, valores maiores do fator tendem a acompanhar percentuais de votos maiores.'
-      : 'Neste recorte, valores maiores do fator tendem a acompanhar percentuais de votos menores.';
+    const nome = this.nomeIndicador().toLowerCase();
+    const direcao = summary.r > 0 ? 'maiores' : 'menores';
+    const forca = summary.forca;
+    const base = Math.abs(summary.r) < 0.1
+      ? `neste recorte, ${nome} quase não acompanha o percentual de votos (associação ${forca}).`
+      : `neste recorte, valores maiores de ${nome} tendem a acompanhar percentuais ${direcao} de votos (associação ${forca}, r ${formatR(summary.r)}).`;
+    const robustez = summary.spearman == null
+      ? ''
+      : Math.abs(summary.spearman - summary.r) > 0.15
+        ? ' A diferença entre Pearson e Spearman sugere que poucos municípios atípicos ou a escala do indicador pesam no resultado — vale olhar o gráfico.'
+        : ' Pearson e Spearman concordam, então o padrão não depende só de poucos municípios atípicos.';
+    return `Leitura simples: ${base}${robustez} É uma associação entre municípios, não uma explicação do voto de cada pessoa.`;
+  }
+
+  /** Frase-guia da dispersão: força, direção e incerteza em linguagem simples. */
+  readonly resumoDispersao = computed(() => {
+    const summary = this.stats();
+    if (!summary) return '';
+    const ic = summary.rLower != null && summary.rUpper != null
+      ? ` (margem aproximada de ${formatR(summary.rLower)} a ${formatR(summary.rUpper)}).`
+      : '.';
+    return `Associação ${summary.forca} ${summary.r >= 0 ? 'positiva' : 'negativa'}${ic} Cada ponto é um município; a reta mostra a tendência geral.`;
+  });
+
+  /** Resumo em linguagem simples: o que os números dizem, sem jargão. */
+  readonly resumoPlano = computed(() => {
+    const summary = this.stats();
+    if (!summary) return '';
+    const alvo = this.result()?.alvo.nome ?? 'o alvo';
+    const indicador = this.nomeIndicador().toLowerCase();
+    const direcao = summary.r >= 0 ? 'sobe junto' : 'cai quando o outro sobe';
+    return `Em ${summary.n} municípios, ${indicador} e o voto em ${alvo} ${direcao} com força ${summary.forca} (r ${formatR(summary.r)}). A metade central votou entre ${fmtPct(summary.q1)} e ${fmtPct(summary.q3)}; ${summary.outliers === 0 ? 'nenhum município destoou do padrão' : summary.outliers + ' ' + (summary.outliers === 1 ? 'município destoou' : 'municípios destoaram') + ' do padrão'}. É associação entre municípios, não causa nem voto individual.`;
+  });
+
+  /** Cor oficial da sigla para chips e selos (fundo). */
+  partidoCor(sigla: string | null | undefined): string {
+    return sigla ? partidoColor(sigla).primary : 'transparent';
+  }
+
+  /** Texto legível sobre a cor do partido (contraste automático). */
+  partidoTexto(sigla: string | null | undefined): string {
+    return sigla ? partidoTextoSobre(sigla) : 'var(--color-text)';
+  }
+
+  /** Rótulo simples da assimetria: para onde pende a cauda. */
+  rotuloAssimetria(valor: number): string {
+    if (!Number.isFinite(valor)) return 'indefinida';
+    if (valor > 0.5) return 'cauda à direita (poucos municípios bem acima)';
+    if (valor < -0.5) return 'cauda à esquerda (poucos municípios bem abaixo)';
+    return 'aprox. simétrica';
+  }
+
+  /** Rótulo simples da curtose: pico e caudas vs. distribuição normal. */
+  rotuloCurtose(valor: number): string {
+    if (!Number.isFinite(valor)) return 'indefinida';
+    if (valor > 0.5) return 'pico alto e caudas pesadas';
+    if (valor < -0.5) return 'achatada, sem pico marcado';
+    return 'próxima do normal';
   }
 
   selecionarFator(key: string): void {
@@ -441,6 +676,7 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
 
   selecionarIndicador(): void {
     const data = this.result();
+    this.persistirUrl();
     if (!data) {
       this.carregarCruzamento();
       return;
@@ -524,12 +760,17 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
 
   selecionarVisualizacao(view: 'overview' | 'scatter' | 'map' | 'patterns'): void {
     this.activeView.set(view);
+    this.persistirUrl();
     if (view !== 'map') return;
-    if (!this.mapData() || this.mapUf !== this.uf) this.carregarMalha();
-    else {
-      this.renderMap();
-      requestAnimationFrame(() => requestAnimationFrame(() => this.map?.invalidateSize()));
+    if (!this.mapData() || this.mapUf !== this.uf) {
+      this.carregarMalha();
+      return;
     }
+    // Espera o Angular tornar o painel visível para enquadrar o estado e medir o container.
+    requestAnimationFrame(() => {
+      this.renderMap();
+      requestAnimationFrame(() => this.map?.invalidateSize());
+    });
   }
 
   corIndicador(value: number | undefined): string {
@@ -544,8 +785,14 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
       else high = middle;
     }
     const percentile = low / Math.max(1, values.length - 1);
-    const palette = ['#e6f0f8', '#bed5e6', '#87afcc', '#4e86aa', '#1e5273'];
+    // Rampa claro → cor do partido quando há sigla; senão, rampa neutra azul.
+    const palette = this.siglaColorida() ? this.rampaPartido() : NEUTRAL_RAMP;
     return palette[Math.min(palette.length - 1, Math.floor(percentile * palette.length))];
+  }
+
+  /** Cor de um ponto da dispersão: usa a mesma rampa do mapa (posição do indicador). */
+  corPontoDispersao(value: number | undefined): string {
+    return this.corIndicador(value);
   }
 
   corFaixaLegenda(index: number): string {
@@ -560,11 +807,26 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
     const start = Math.floor((index * values.length) / 5);
     const end = Math.min(values.length - 1, Math.floor(((index + 1) * values.length) / 5) - 1);
     if (end < start) return 'Sem dados';
-    return `${values[start].toPrecision(3)}–${values[end].toPrecision(3)}`;
+    return `${this.formatarFaixaLegenda(values[start])}–${this.formatarFaixaLegenda(values[end])}`;
+  }
+
+  /**
+   * Escreve o valor por extenso, com separadores do pt-BR (ex.: 1.230.000),
+   * sem notação científica (`1.23e+7`) e sem sufixos abreviados.
+   */
+  private formatarFaixaLegenda(value: number): string {
+    if (!Number.isFinite(value)) return '—';
+    return value.toLocaleString('pt-BR', { maximumSignificantDigits: 3 });
   }
 
   private atualizarOpcoesSelecao(): void {
     this.partyOptions.set(this.partidosDisponiveis());
+  }
+
+  /** Primeiros 3 candidatos por votação, para facilitar o preenchimento sem digitação. */
+  topCandidates(): CrossingCandidate[] {
+    // Espelho do alvo analisado (votos 0) não deve aparecer como sugestão.
+    return this.candidateOptions().filter((candidate) => candidate.votos > 0).slice(0, 3);
   }
 
   private carregarOpcoesCandidatos(debounce = false): void {
@@ -575,6 +837,9 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
     const requestId = ++this.candidateLoadId;
     this.error.set(null);
     const busca = this.candidatoFiltro.trim();
+    // Redundante com os demais fluxos, mas garante padrão mesmo por caminho indireto.
+    if (!this.cargo || !this.cargos().includes(this.cargo)) this.cargo = this.cargos()[0] ?? '';
+    if (this.turno == null || !this.turnos().includes(this.turno)) this.turno = this.turnos()[0] ?? null;
     const cargo = this.cargo;
     const turno = this.turno;
     if (!cargo || turno == null) {
@@ -629,19 +894,53 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
   }
 
   private aplicarOpcoesCandidatos(response: CrossingCandidatesResponse): void {
-    this.candidateOptions.set(response.items);
+    const items = [...response.items];
+    // Alvo analisado fora da lista visível (busca estreita ou fora dos 100 mais):
+    // injeta o espelho no topo para o select seguir exibindo quem está em análise.
+    if (
+      this.candidato &&
+      this.candidatoSnapshot?.sqCandidato === this.candidato &&
+      !items.some((candidate) => candidate.sqCandidato === this.candidato)
+    ) {
+      items.unshift(this.candidatoSnapshot);
+    }
+    this.candidateOptions.set(items);
+    // `total` é o universo no servidor; com items.length o aviso
+    // "Exibindo os 100 mais…" nunca era atingido.
     this.availableCandidateCount.set(response.total);
-    // Sem pré-seleção: o usuário escolhe explicitamente; mantém seleção válida se ainda existir.
-    const selectedIsAvailable = this.candidato
-      ? response.items.some((candidate) => candidate.sqCandidato === this.candidato)
-      : false;
-    if (!selectedIsAvailable) {
-      this.candidato = '';
-      this.result.set(null);
-      if (this.activeView() === 'map') this.renderMap();
+    // Sem travas: o candidato só muda quando o usuário seleciona; o mapa não vaza
+    // um alvo por default.
+    if (this.candidato) {
+      this.carregarCruzamento();
       return;
     }
-    this.carregarCruzamento();
+    this.result.set(null);
+    if (this.activeView() === 'map') this.renderMap();
+  }
+
+  /**
+   * Garante que o <select> de candidato exiba o alvo recém-analisado, mesmo
+   * quando ele não veio da lista (deep-link `?candidato=<sq>`): preenche o
+   * espelho com o nome/partido confirmados pela própria resposta do cruzamento.
+   */
+  private espelharCandidatoAnalisado(result: CrossingResultResponse): void {
+    if (this.modoAnalise !== 'candidato' || result.alvo.tipo !== 'candidato' || !this.candidato) {
+      return;
+    }
+    const conhecido = this.candidatoSnapshot?.sqCandidato === this.candidato;
+    const snapshot: CrossingCandidate = {
+      cargo: result.cargo,
+      turno: result.turno,
+      sqCandidato: this.candidato,
+      nome: result.alvo.nome,
+      partido: result.alvo.partido ?? '',
+      // Votos só existem quando o candidato veio da lista; 0 esconde o sufixo.
+      votos: conhecido ? this.candidatoSnapshot!.votos : 0,
+    };
+    this.candidatoSnapshot = snapshot;
+    if (!this.candidateOptions().some((candidate) => candidate.sqCandidato === snapshot.sqCandidato)) {
+      this.candidateOptions.update((options) => [snapshot, ...options]);
+    }
   }
 
   private carregarMalha(): void {
@@ -653,12 +952,12 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
       .getMunicipalMap(uf)
       .pipe(finalize(() => this.mapLoading.set(false)))
       .subscribe({
-        next: (featureCollection) => {
+        next: (featureCollection: MunicipalMapResponse) => {
           this.mapData.set(featureCollection);
           this.mapUf = uf;
           requestAnimationFrame(() => this.renderMap());
         },
-        error: (error) => this.mapError.set(error?.error?.error ?? 'Não foi possível carregar a malha municipal do IBGE.'),
+        error: (error: { error?: { error?: string } }) => this.mapError.set(error?.error?.error ?? 'Não foi possível carregar a malha municipal do IBGE.'),
       });
   }
 
@@ -678,12 +977,14 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
       this.mapLayer = undefined;
     }
 
+    let recreated = false;
     if (!this.map) {
       this.map = L.map(element, { scrollWheelZoom: false, zoomControl: true });
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 12,
         attribution: '&copy; OpenStreetMap',
       }).addTo(this.map);
+      recreated = true;
     }
     this.mapLayer?.remove();
     const pointByCode = new Map((result?.pontos ?? []).map((point) => [point.codigoIbge, point]));
@@ -692,10 +993,19 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
       style: (feature) => {
         const code = String(feature?.properties?.['codarea'] ?? '');
         const point = pointByCode.get(code);
+        // Partido direto ou partido do candidato: a rampa do mapa segue a sigla.
+        const sigla = this.siglaColorida();
+        const estiloPartido = sigla ? partidoColor(sigla) : null;
+        // Intensidade pelo % de votos (0–100): quanto maior a votação, mais cheia a cor.
+        const rampa = sigla ? partidoRampa(sigla, 5) : null;
+        const passo = point ? Math.min(4, Math.floor((point.percentualVotos / 100) * 5)) : -1;
+        const fillColor = estiloPartido && rampa && point
+          ? rampa[passo]
+          : this.corIndicador(point?.indicador);
         return {
           color: '#f4f5f7',
           weight: 0.45,
-          fillColor: this.corIndicador(point?.indicador),
+          fillColor,
           fillOpacity: point ? 0.82 : 0.18,
         };
       },
@@ -712,19 +1022,60 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
       },
     }).addTo(this.map);
     const bounds = this.mapLayer.getBounds();
-    if (bounds.isValid()) this.map.fitBounds(bounds, { padding: [8, 8] });
+    // Enquadra no estado/abrangência atual: ao trocar de UF, ao recriar o mapa ou quando
+    // o fit anterior foi adiado (painel oculto). Não reenquadra a cada troca de indicador
+    // para preservar o zoom/pan feitos pelo usuário.
+    const needsFit = recreated || this.mapFittedUf !== this.mapUf || this.mapFitPending;
+    const hidden = element.offsetParent === null || element.clientHeight === 0;
+    if (bounds.isValid() && needsFit) {
+      if (hidden) {
+        this.mapFitPending = true;
+      } else {
+        this.map.fitBounds(bounds, { padding: [8, 8] });
+        this.mapFittedUf = this.mapUf;
+        this.mapFitPending = false;
+      }
+    }
     requestAnimationFrame(() => this.map?.invalidateSize());
   }
 }
 
-function calculateStats(points: AnalysisPoint[]): AnalysisStats | null {
+/** Exportada para testes: é a base de r, R² e p-valor exibidos na tela. */
+export function calculateStats(points: AnalysisPoint[]): AnalysisStats | null {
   if (points.length < 3) return null;
   const n = points.length;
-  const meanX = points.reduce((sum, point) => sum + point.x, 0) / n;
-  const meanY = points.reduce((sum, point) => sum + point.percentualVotos, 0) / n;
+  const votos = points.map((point) => point.percentualVotos);
+  const sortedVotos = [...votos].sort((a, b) => a - b);
+  const quantile = (p: number): number => {
+    const index = p * (n - 1);
+    const lower = Math.floor(index);
+    const upper = Math.ceil(index);
+    if (lower === upper) return sortedVotos[lower];
+    const weight = index - lower;
+    return sortedVotos[lower] * (1 - weight) + sortedVotos[upper] * weight;
+  };
+  const min = sortedVotos[0];
+  const max = sortedVotos[n - 1];
+  const q1 = quantile(0.25);
+  const q3 = quantile(0.75);
+  const mediana = quantile(0.5);
+  const mean = votos.reduce((sum, value) => sum + value, 0) / n;
+  const meanY = mean;
+  const squaredDiffs = votos.map((value) => (value - mean) ** 2);
+  const variance = squaredDiffs.reduce((sum, diff) => sum + diff, 0) / (n - 1);
+  const desvioPadrao = Math.sqrt(variance);
+  const coeficienteVariacao = mean !== 0 ? (desvioPadrao / Math.abs(mean)) * 100 : NaN;
+  const amplitude = max - min;
+  const iqr = q3 - q1;
+  // Regra de Tukey (1,5 × IQR) sobre o % de votos: conta municípios atípicos.
+  const cercaInferior = q1 - 1.5 * iqr;
+  const cercaSuperior = q3 + 1.5 * iqr;
+  const outliers = votos.filter((value) => value < cercaInferior || value > cercaSuperior).length;
+
   let sumXX = 0;
   let sumYY = 0;
   let sumXY = 0;
+  const meanX = points.reduce((sum, point) => sum + point.x, 0) / n;
   for (const point of points) {
     const dx = point.x - meanX;
     const dy = point.percentualVotos - meanY;
@@ -732,13 +1083,69 @@ function calculateStats(points: AnalysisPoint[]): AnalysisStats | null {
     sumYY += dy * dy;
     sumXY += dx * dy;
   }
+
+  let skewNum = 0;
+  let kurtNum = 0;
+  for (const point of points) {
+    const dy = point.percentualVotos - meanY;
+    skewNum += Math.pow(dy / desvioPadrao, 3);
+    kurtNum += Math.pow(dy / desvioPadrao, 4);
+  }
+  const skewness = n * skewNum / ((n - 1) * (n - 2));
+  const kurtosis = (n * (n + 1) * kurtNum) / ((n - 1) * (n - 2) * (n - 3)) - (3 * (n - 1) ** 2) / ((n - 2) * (n - 3));
+
   if (!sumXX || !sumYY) return null;
   const r = sumXY / Math.sqrt(sumXX * sumYY);
   const degreesOfFreedom = n - 2;
   const tSquared = (r * r * degreesOfFreedom) / Math.max(Number.EPSILON, 1 - r * r);
   const p = r === 1 || r === -1 ? 0 : regularizedBeta(degreesOfFreedom / (degreesOfFreedom + tSquared), degreesOfFreedom / 2, 0.5);
   const slope = sumXY / sumXX;
-  return { n, r, r2: r * r, slope, intercept: meanY - slope * meanX, p };
+  const intercept = meanY - slope * meanX;
+  // Spearman = Pearson sobre os postos (médios em empates): capta relação
+  // monotônica mesmo quando a escala do indicador é não-linear (ex.: log).
+  const spearman = correcaoPostos(points.map((point) => point.x), points.map((point) => point.percentualVotos));
+  // IC 95% de r via z de Fisher: z ± 1,96/√(n−3), depois tanh de volta.
+  let rLower: number | null = null;
+  let rUpper: number | null = null;
+  const absR = Math.min(1, Math.abs(r));
+  if (n > 3 && absR < 1) {
+    const z = 0.5 * Math.log((1 + r) / Math.max(Number.EPSILON, 1 - r));
+    const erro = 1.96 / Math.sqrt(n - 3);
+    rLower = Math.tanh(z - erro);
+    rUpper = Math.tanh(z + erro);
+  }
+  const forca = classificaForca(r);
+  // RMSE da reta: dispersão típica dos municípios em torno da tendência.
+  const rmse = Math.sqrt(
+    points.reduce((sum, point) => sum + (point.percentualVotos - (intercept + slope * point.x)) ** 2, 0) / n,
+  );
+  return {
+    n,
+    media: mean,
+    mediana,
+    desvioPadrao,
+    variancia: variance,
+    coeficienteVariacao,
+    minimo: min,
+    maximo: max,
+    q1,
+    q3,
+    amplitude,
+    iqr,
+    outliers,
+    r,
+    r2: r * r,
+    spearman,
+    rLower,
+    rUpper,
+    forca,
+    slope,
+    intercept,
+    rmse,
+    p,
+    skewness,
+    kurtosis,
+  };
 }
 
 function createPlot(points: AnalysisPoint[], stats: AnalysisStats | null): { dots: PlotPoint[]; line: { x1: number; y1: number; x2: number; y2: number } | null } {
@@ -760,7 +1167,8 @@ function createPlot(points: AnalysisPoint[], stats: AnalysisStats | null): { dot
   return { dots, line };
 }
 
-function createQuintiles(points: AnalysisPoint[]): { label: string; position: string; range: string; count: number; mean: number }[] {
+/** Exportada para testes: agrupa os municípios em cinco faixas do indicador. */
+export function createQuintiles(points: AnalysisPoint[]): { label: string; position: string; range: string; count: number; mean: number }[] {
   if (points.length < 5) return [];
   const sorted = [...points].sort((left, right) => left.x - right.x);
   return Array.from({ length: 5 }, (_, index) => {
@@ -799,7 +1207,11 @@ interface BarChartPlan {
 
 const BAR_CHART_PADDING = { left: 22, right: 22, top: 16, bottom: 40 } as const;
 
-function createBarChart(points: AnalysisPoint[]): BarChartPlan {
+/** Rampa neutra (azul) quando não há sigla para colorir a análise. */
+const NEUTRAL_RAMP = ['#e6f0f8', '#bed5e6', '#87afcc', '#4e86aa', '#1e5273'] as const;
+
+/** Exportada para testes: monta o gráfico de média por faixa do indicador. */
+export function createBarChart(points: AnalysisPoint[]): BarChartPlan {
   const groups = createQuintiles(points);
   if (!groups.length) {
     return { bars: [], yMax: 1, gridlines: [], overallMeanValue: 0, overallMeanY: 0, xLabels: [] };
@@ -837,20 +1249,71 @@ function createBarChart(points: AnalysisPoint[]): BarChartPlan {
   return { bars, yMax, gridlines, overallMeanValue: overallMean, overallMeanY, xLabels };
 }
 
-const BAR_CHART_PALETTE = ['#9fc3e8', '#7fb0d8', '#5d92c8', '#3d77b2', '#1767a6'] as const;
+/** Classificação didática da força da associação linear (|r|). */
+export function classificaForca(r: number): string {
+  const abs = Math.abs(r);
+  if (abs < 0.1) return 'desprezível';
+  if (abs < 0.3) return 'fraca';
+  if (abs < 0.5) return 'moderada';
+  if (abs < 0.7) return 'forte';
+  return 'muito forte';
+}
+
+/** Postos médios (empates dividem a posição): base do Spearman. */
+function postosMedios(values: number[]): number[] {
+  const ordem = values.map((value, index) => ({ value, index })).sort((a, b) => a.value - b.value);
+  const ranks = new Array<number>(values.length);
+  let i = 0;
+  while (i < ordem.length) {
+    let j = i;
+    while (j + 1 < ordem.length && ordem[j + 1].value === ordem[i].value) j++;
+    const medio = (i + j) / 2 + 1;
+    for (let k = i; k <= j; k++) ranks[ordem[k].index] = medio;
+    i = j + 1;
+  }
+  return ranks;
+}
+
+/** Spearman (Pearson sobre postos); null quando algum lado é constante. */
+export function correcaoPostos(xs: number[], ys: number[]): number | null {
+  if (xs.length !== ys.length || xs.length < 3) return null;
+  const rx = postosMedios(xs);
+  const ry = postosMedios(ys);
+  const n = xs.length;
+  const mediaX = rx.reduce((s, v) => s + v, 0) / n;
+  const mediaY = ry.reduce((s, v) => s + v, 0) / n;
+  let sxx = 0;
+  let syy = 0;
+  let sxy = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = rx[i] - mediaX;
+    const dy = ry[i] - mediaY;
+    sxx += dx * dx;
+    syy += dy * dy;
+    sxy += dx * dy;
+  }
+  if (!sxx || !syy) return null;
+  return sxy / Math.sqrt(sxx * syy);
+}
 
 function formatIndicator(value: number): string {
   return value.toLocaleString('pt-BR', { maximumSignificantDigits: 4 });
 }
 
+/** Formata correlações com sinal e 2 casas (ex.: +0,42). */
+function formatR(value: number): string {
+  const sinal = value > 0 ? '+' : value < 0 ? '−' : '';
+  return `${sinal}${Math.abs(value).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 function logGamma(value: number): number {
-  const coefficients = [76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155, 0.001208650973866179, -0.000005395239384953];
+  const coefficients = [76.18009172947146, -86.50532032941678, 24.01409824083091, -1.231739572450155, 0.001208650973866179, -0.000005395239384953];
   let x = value;
   let temp = value + 5.5;
   temp -= (value + 0.5) * Math.log(temp);
   let series = 1.000000000190015;
   for (const coefficient of coefficients) series += coefficient / ++x;
-  return -temp + Math.log(2.5066282746310005 * series / value);
+  return -temp + Math.log(2.5066282746310007 * series / value);
 }
 
 function betaContinuedFraction(a: number, b: number, x: number): number {
@@ -891,4 +1354,9 @@ function regularizedBeta(x: number, a: number, b: number): number {
   return x < (a + 1) / (a + b + 2)
     ? (factor * betaContinuedFraction(a, b, x)) / a
     : 1 - (factor * betaContinuedFraction(b, a, 1 - x)) / b;
+}
+
+/** Percentual com 2 casas em pt-BR (resumo simples). */
+function fmtPct(value: number): string {
+  return `${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
 }
