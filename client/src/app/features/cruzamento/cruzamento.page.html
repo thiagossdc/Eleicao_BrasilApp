@@ -93,9 +93,9 @@
   <p class="cruzamento__error" *ngIf="error() as message" role="alert">{{ message }}</p>
   <p class="cruzamento__loading" *ngIf="loadingCatalog()" aria-live="polite">Consultando resultados oficiais do TSE para {{ nomeAbrangencia() }}…</p>
   <p class="cruzamento__loading" *ngIf="loadingResult()" aria-live="polite">Preparando a comparação municipal com dados do TSE e do IBGE…</p>
-  <section class="cruzamento__loading" *ngIf="hasLoadedCatalog() && !result() && !loadingResult() && modoAnalise === 'candidato' && !error()" aria-live="polite">
+  <section class="cruzamento__loading" *ngIf="hasLoadedCatalog() && !result() && !loadingResult() && !loadingCandidates() && modoAnalise === 'candidato' && !error()" aria-live="polite">
     <strong>Escolha um candidato para ver o mapa</strong>
-    <p>O mapa municipal será exibido com os resultados e os indicadores do IBGE após a seleção. Nenhum candidato é escolhido automaticamente.</p>
+    <p>O mapa municipal será exibido com os resultados e os indicadores do IBGE após a seleção.</p>
   </section>
 
   <ng-container *ngIf="result() as data">

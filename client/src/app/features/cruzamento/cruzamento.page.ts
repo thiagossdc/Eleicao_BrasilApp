@@ -427,9 +427,33 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
   }
 
   tituloAnalise(): string {
-    return this.cargo === 'Presidente' || (this.uf === 'BRASIL' && !this.cargo)
-      ? 'Candidaturas à Presidência'
-      : 'Explore votos e território';
+    const data = this.result();
+    if (data?.alvo?.nome) {
+      const abrang = data.uf === 'BRASIL' ? 'Brasil' : data.uf;
+      const alvo = data.alvo.tipo === 'partido' ? `Partido ${data.alvo.nome}` : data.alvo.nome;
+      const sigla = data.alvo.tipo === 'candidato' && data.alvo.partido ? ` · ${data.alvo.partido}` : '';
+      return `${alvo}${sigla} · ${data.cargo} ${data.ano} · ${abrang}`;
+    }
+    if (this.modoAnalise === 'partido' && this.partido && this.partido !== 'TODOS') {
+      const cargo = this.cargo ? ` · ${this.cargo} ${this.ano}` : '';
+      return `Partido ${this.partido}${cargo}`;
+    }
+    if (this.modoAnalise === 'candidato' && this.candidato) {
+      const found = this.candidateOptions().find((c) => c.sqCandidato === this.candidato);
+      const nome = found
+        ? `${found.nome}${found.partido ? ' · ' + found.partido : ''}`
+        : 'Candidato selecionado';
+      const cargo = this.cargo ? ` · ${this.cargo} ${this.ano}` : '';
+      return `${nome}${cargo}`;
+    }
+    const cargoNorm = (this.cargo || '').toLocaleLowerCase('pt-BR');
+    if (cargoNorm.includes('presidente') || (this.uf === 'BRASIL' && !this.cargo)) {
+      return 'Candidaturas à Presidência';
+    }
+    if (this.cargo) {
+      return `${this.cargo} · ${this.ano} · ${this.nomeAbrangencia()}`;
+    }
+    return 'Explore votos e território';
   }
 
   perguntarAssistente(): void {
@@ -475,7 +499,10 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
     this.activeView.set(view);
     if (view !== 'map') return;
     if (!this.mapData() || this.mapUf !== this.uf) this.carregarMalha();
-    else requestAnimationFrame(() => this.map?.invalidateSize());
+    else {
+      this.renderMap();
+      requestAnimationFrame(() => requestAnimationFrame(() => this.map?.invalidateSize()));
+    }
   }
 
   corIndicador(value: number | undefined): string {
@@ -579,7 +606,8 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
     this.availableCandidateCount.set(response.total);
     const selectedIsAvailable = response.items.some((candidate) => candidate.sqCandidato === this.candidato);
     if (!selectedIsAvailable) {
-      this.candidato = '';
+      // Mapa por default: seleciona o mais votado na abertura / troca de filtro.
+      this.candidato = response.items[0]?.sqCandidato ?? '';
     }
     if (this.candidato) this.carregarCruzamento();
     else this.result.set(null);
@@ -608,6 +636,16 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
     const featureCollection = this.mapData();
     const result = this.result();
     if (!element || !featureCollection || !result) return;
+
+    // O painel do mapa vive dentro de um *ngIf(result). Quando o resultado é
+    // trocado (novo candidato/UF), o Angular destrói e recria a div do mapa.
+    // Reutilizar a instância antiga do Leaflet a liga ao elemento destacado,
+    // então o mapa "some". Recria quando o container mudou.
+    if (this.map && this.map.getContainer() !== element) {
+      this.map.remove();
+      this.map = undefined;
+      this.mapLayer = undefined;
+    }
 
     if (!this.map) {
       this.map = L.map(element, { scrollWheelZoom: false, zoomControl: true });

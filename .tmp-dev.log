@@ -1,0 +1,67 @@
+Running node v22.22.3 (npm v10.9.8)
+
+> dev
+> concurrently -n api,web -c blue,green "npm run server" "npm run client"
+
+[web] 
+[web] > client
+[web] > npm start --prefix client
+[web] 
+[api] 
+[api] > server
+[api] > npm run dev --prefix server
+[api] 
+[api] 
+[api] > eleicao-limpa-api@1.0.0 dev
+[api] > node --watch src/index.js
+[api] 
+[web] 
+[web] > client@0.0.0 start
+[web] > ng serve
+[web] 
+[api] API Eleição Limpa - Brasil ouvindo em http://localhost:3000
+[web] Component HMR has been enabled, see https://angular.dev/hmr for more info.
+[web] ❯ Building...
+[web] ✔ Building...
+[web] Initial chunk files | Names           |  Raw size
+[web] polyfills.js        | polyfills       |  89.77 kB | 
+[web] main.js             | main            |  24.05 kB | 
+[web] styles.css          | styles          |  15.34 kB | 
+[web] chunk-VUJOFXKG.js   | -               | 938 bytes | 
+[web] 
+[web]                     | Initial total   | 130.10 kB
+[web] 
+[web] Lazy chunk files    | Names           |  Raw size
+[web] chunk-CLIQDG24.js   | cruzamento-page | 155.57 kB | 
+[web] chunk-KLM4GJG6.js   | consulta-page   |  46.18 kB | 
+[web] chunk-5B6TDJFU.js   | tutorial-page   |  23.24 kB | 
+[web] chunk-T6TRIEX4.js   | sync-page       |  15.21 kB | 
+[web] chunk-BY6CXWJ4.js   | -               |   3.96 kB | 
+[web] 
+[web] Application bundle generation complete. [1.369 seconds]
+[web] 
+[web] Watch mode enabled. Watching for file changes...
+[web] NOTE: Raw file sizes do not reflect development server per-request transformations.
+[web]   ➜  Local:   http://localhost:4200/
+[web] ❯ Changes detected. Rebuilding...
+[web] ✔ Changes detected. Rebuilding...
+[web] Initial chunk files | Names           |  Raw size
+[web] main.js             | main            |  24.05 kB | 
+[web] 
+[web] Lazy chunk files    | Names           |  Raw size
+[web] chunk-OCLSV5HD.js   | cruzamento-page | 155.60 kB | 
+[web] 
+[web] Application bundle generation complete. [0.854 seconds]
+[web] 
+[web] Page reload sent to client(s).
+[web] ❯ Changes detected. Rebuilding...
+[web] ✔ Changes detected. Rebuilding...
+[web] Initial chunk files | Names           |  Raw size
+[web] main.js             | main            |  24.05 kB | 
+[web] 
+[web] Lazy chunk files    | Names           |  Raw size
+[web] chunk-EAHKVVRF.js   | cruzamento-page | 155.55 kB | 
+[web] 
+[web] Application bundle generation complete. [1.806 seconds]
+[web] 
+[web] Component update sent to client(s).

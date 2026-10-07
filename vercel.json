@@ -5,11 +5,16 @@
   "buildCommand": "npm run build --prefix client",
   "outputDirectory": "client/dist/client/browser",
   "functions": {
-    "api/*.js": {
-      "maxDuration": 60
+    "api/index.js": {
+      "maxDuration": 60,
+      "includeFiles": ["server/data/eleicao.db"]
     }
   },
   "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index"
+    },
     {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
