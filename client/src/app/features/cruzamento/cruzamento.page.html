@@ -27,6 +27,14 @@
         <option value="">Selecione um cargo</option>
         <option *ngFor="let office of cargos()" [value]="office">{{ office }}</option>
       </select>
+      <small *ngIf="uf === 'BRASIL' && hasLoadedCatalog() && cargos().length === 1">No modo Brasil inteiro, o TSE só publica Presidente. Para outros cargos, escolha uma UF.</small>
+    </label>
+    <label class="field field--sm">
+      <span>Turno</span>
+      <select name="turno" [(ngModel)]="turno" (ngModelChange)="filtrosMudaram()" [disabled]="!turnos().length">
+        <option [ngValue]="null">Selecione</option>
+        <option *ngFor="let round of turnos()" [ngValue]="round">{{ round }}º</option>
+      </select>
     </label>
     <label class="field">
       <span>Tipo de análise</span>
@@ -76,15 +84,8 @@
   </form>
 
   <details class="filter-details">
-    <summary><span>Refinar análise</span><small>Turno e escala</small></summary>
+    <summary><span>Refinar análise</span><small>Escala do gráfico</small></summary>
     <div class="filter-details__grid">
-      <label class="field field--sm">
-        <span>Turno</span>
-        <select name="turno" [(ngModel)]="turno" (ngModelChange)="filtrosMudaram()" [disabled]="!turnos().length">
-          <option [ngValue]="null">Selecione</option>
-          <option *ngFor="let round of turnos()" [ngValue]="round">{{ round }}º</option>
-        </select>
-      </label>
       <label class="field field--sm">
         <span>Escala do gráfico</span>
         <select name="escala" [ngModel]="logScale()" (ngModelChange)="logScale.set($event)">
