@@ -125,7 +125,7 @@
           <ng-template #mapEmptyHint><p class="result-panel__muted">O mapa foca no estado selecionado na abrangência. Escolha candidato/partido para ver os valores por município</p></ng-template>
         </div>
         <span class="map-panel__coverage" *ngIf="result() as data">{{ data.cobertura.municipiosComDados | number }} {{ data.cobertura.municipiosComDados === 1 ? 'município' : 'municípios' }}</span>
-        <span class="party-chip party-chip--map" *ngIf="siglaColorida() as sigla" [style.background-color]="partidoCor(sigla)" [style.color]="partidoTexto(sigla)">{{ sigla }}</span>
+        <span class="party-chip party-chip--map" *ngIf="siglaColorida() as sigla" [style.border-color]="partidoCor(sigla)" [style.color]="partidoContorno(sigla)">{{ sigla }}</span>
       </div>
       <p class="cruzamento__error" *ngIf="mapError() as message" role="alert">{{ message }}</p>
       <p class="result-panel__muted" *ngIf="mapLoading()">Carregando mapa do IBGE…</p>
@@ -142,7 +142,7 @@
     <p class="cruzamento__target">
       {{ data.alvo.tipo === 'partido' ? 'Análise por partido' : 'Análise por candidato' }}:
       <strong>{{ data.alvo.nome }}</strong>
-      <span class="party-chip" *ngIf="data.alvo.tipo === 'candidato' && siglaColorida() as sigla" [style.background-color]="partidoCor(sigla)" [style.color]="partidoTexto(sigla)" [attr.aria-label]="'Partido ' + sigla">· {{ sigla }}</span>
+      <span class="party-chip" *ngIf="data.alvo.tipo === 'candidato' && siglaColorida() as sigla" [style.border-color]="partidoCor(sigla)" [style.color]="partidoContorno(sigla)" [attr.aria-label]="'Partido ' + sigla">· {{ sigla }}</span>
     </p>
     <section class="cruzamento__meta" aria-label="Resumo da análise">
       <span><strong>{{ analyzedPoints().length | number }}</strong> {{ analyzedPoints().length === 1 ? 'município analisado' : 'municípios analisados' }}</span>
@@ -287,18 +287,18 @@
         </div>
         <span class="bar-chart-panel__summary" *ngIf="barChartPlan().bars.length">{{ barChartPlan().bars.length }} faixas · {{ analyzedPoints().length }} municípios</span>
       </div>
-      <svg viewBox="0 0 720 400" role="img" [attr.aria-label]="'Gráfico de barras: média de votos por faixa de ' + nomeIndicador()">
-        <line *ngFor="let line of barChartPlan().gridlines" [attr.x1]="22" [attr.y1]="line.y" [attr.x2]="698" [attr.y2]="line.y" class="bar-chart__gridline" />
-        <line x1="22" y1="360" x2="698" y2="360" class="bar-chart__x-axis" />
-        <line x1="22" y1="16" x2="22" y2="360" class="bar-chart__y-axis" />
-        <text *ngFor="let line of barChartPlan().gridlines" [attr.x]="16" [attr.y]="line.y + 4" text-anchor="end" class="bar-chart__ylabel">{{ line.value | number: '1.0-1' }}%</text>
-        <text *ngFor="let bar of barChartPlan().bars; let i = index" [attr.x]="bar.px + bar.pw / 2" [attr.y]="378" text-anchor="middle" class="bar-chart__xlabel">{{ bar.label }}</text>
-        <rect *ngFor="let bar of barChartPlan().bars; let i = index" [attr.x]="bar.px" [attr.y]="bar.pTop" [attr.width]="bar.pw" [attr.height]="bar.ph" class="bar-chart__bar" [attr.fill]="barChartColor(i)" />
-        <text *ngFor="let bar of barChartPlan().bars; let i = index" [attr.x]="bar.px + bar.pw / 2" [attr.y]="bar.pTop - 6" text-anchor="middle" class="bar-chart__value">{{ bar.mean | number: '1.0-1' }}%</text>
-        <line *ngIf="barChartPlan().bars.length" [attr.x1]="22" [attr.y1]="barChartPlan().overallMeanY" [attr.x2]="698" [attr.y2]="barChartPlan().overallMeanY" class="bar-chart__avgline" />
-        <text x="360" y="14" text-anchor="middle" class="bar-chart__title">{{ nomeIndicador() }} × % dos votos nominais</text>
-        <text x="360" y="28" text-anchor="middle" class="bar-chart__muted">{{ logScale() ? 'Escala log10' : 'Escala linear' }}</text>
-      </svg>
+      <div class="bar-chart__scroll" *ngIf="barChartPlan().bars.length">
+        <svg viewBox="0 0 720 400" role="img" [attr.aria-label]="'Gráfico de barras: média de votos por faixa de ' + nomeIndicador()">
+          <line *ngFor="let line of barChartPlan().gridlines" [attr.x1]="barChartPlan().plot.left" [attr.y1]="line.y" [attr.x2]="barChartPlan().plot.right" [attr.y2]="line.y" class="bar-chart__gridline" />
+          <line [attr.x1]="barChartPlan().plot.left" [attr.y1]="barChartPlan().plot.bottom" [attr.x2]="barChartPlan().plot.right" [attr.y2]="barChartPlan().plot.bottom" class="bar-chart__x-axis" />
+          <line [attr.x1]="barChartPlan().plot.left" [attr.y1]="barChartPlan().plot.top" [attr.x2]="barChartPlan().plot.left" [attr.y2]="barChartPlan().plot.bottom" class="bar-chart__y-axis" />
+          <text *ngFor="let line of barChartPlan().gridlines" [attr.x]="barChartPlan().labels.yAxisX" [attr.y]="line.y + 4" text-anchor="end" class="bar-chart__ylabel">{{ line.value | number: '1.0-1' }}%</text>
+          <text *ngFor="let bar of barChartPlan().bars; let i = index" [attr.x]="bar.px + bar.pw / 2" [attr.y]="barChartPlan().labels.xAxisY" text-anchor="middle" class="bar-chart__xlabel">{{ bar.label }}</text>
+          <rect *ngFor="let bar of barChartPlan().bars; let i = index" [attr.x]="bar.px" [attr.y]="bar.pTop" [attr.width]="bar.pw" [attr.height]="bar.ph" rx="4" class="bar-chart__bar" [attr.fill]="barChartColor(i)"><title>{{ bar.label }}: {{ bar.mean | number: '1.0-1' }}% em {{ bar.count }} municípios</title></rect>
+          <text *ngFor="let bar of barChartPlan().bars; let i = index" [attr.x]="bar.px + bar.pw / 2" [attr.y]="bar.pTop - 8" text-anchor="middle" class="bar-chart__value">{{ bar.mean | number: '1.0-1' }}%</text>
+          <line *ngIf="barChartPlan().bars.length" [attr.x1]="barChartPlan().plot.left" [attr.y1]="barChartPlan().overallMeanY" [attr.x2]="barChartPlan().plot.right" [attr.y2]="barChartPlan().overallMeanY" class="bar-chart__avgline" />
+        </svg>
+      </div>
       <div class="bar-chart__legend" *ngIf="barChartPlan().bars.length">
         <span class="bar-chart__legend-item">
           <span class="bar-chart__legend-line"></span>

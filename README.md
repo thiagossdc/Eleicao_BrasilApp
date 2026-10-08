@@ -66,7 +66,7 @@ Servicos esperados:
 - `POST /api/assistant` - pergunta sobre a aplicacao, fontes e metodologia
 - `POST /api/sync` - importa dados do TSE
 
-O cruzamento baixa no servidor o pacote oficial de votacao do TSE e consulta a API de Agregados do IBGE. A leitura dos CSVs do TSE e interna: nenhum arquivo precisa ser selecionado ou enviado pelo navegador. Eleicoes disponiveis: 2016, 2018, 2020, 2022, 2024 e 2026. A opcao `BRASIL` consulta o CSV nacional e agrega votos por codigo IBGE municipal; para anos sem cargo presidencial no pacote, a API informa a indisponibilidade. No pacote 2026 atualmente publicado pelo TSE, os arquivos consultados ainda nao incluem resultados para Presidente; os demais cargos estaduais/federais disponiveis podem ser analisados por UF.
+O cruzamento baixa no servidor o pacote oficial de votacao do TSE e consulta a API de Agregados do IBGE. A leitura dos CSVs do TSE e interna: nenhum arquivo precisa ser selecionado ou enviado pelo navegador. Eleicoes disponiveis: 2016, 2018, 2020, 2022, 2024 e 2026. A opcao `BRASIL` consulta o CSV nacional e agrega votos por codigo IBGE municipal, restrita a Presidente (agregar os 27 CSVs por UF estourava memoria/tempo); para anos sem cargo presidencial no pacote, a API informa a indisponibilidade. Os demais cargos estaduais/federais podem ser analisados por UF.
 
 Cada cruzamento retorna de uma vez a cesta municipal de fatores, para que a troca de indicador e a comparacao sejam feitas no navegador sem novas consultas ao IBGE:
 

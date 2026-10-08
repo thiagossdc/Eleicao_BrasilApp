@@ -247,9 +247,14 @@ export class ConsultaPageComponent implements OnInit, OnDestroy {
     this.detailError.set(null);
   }
 
-  /** Cor de fundo da célula do partido (usa a cor oficial da sigla). */
+  /** Cor oficial da sigla para a borda do selo (contorno, sem chapado). */
   partidoCor(sigla: string | null | undefined): string {
     return sigla ? partidoColor(sigla).primary : 'transparent';
+  }
+
+  /** Texto do selo em contorno: variante escura da sigla, legível sobre fundo claro. */
+  partidoContorno(sigla: string | null | undefined): string {
+    return sigla ? partidoColor(sigla).dark : 'var(--color-text)';
   }
 
   /** Cor do texto sobre a célula do partido (contraste automático). */

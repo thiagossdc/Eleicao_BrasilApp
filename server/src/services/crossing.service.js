@@ -46,6 +46,18 @@ const VOTING_COLUMNS = new Set([
   'SG_UF', 'DS_CARGO', 'NR_TURNO', 'SQ_CANDIDATO', 'NM_MUNICIPIO', 'QT_VOTOS_NOMINAIS',
   'NM_URNA_CANDIDATO', 'NM_CANDIDATO', 'SG_PARTIDO',
 ]);
+
+/**
+ * Nomes dos CSVs de votação a ler no pacote oficial do TSE.
+ * UF única -> 1 arquivo; BRASIL -> arquivo nacional único (_BR.csv), que traz
+ * a apuração presidencial consolidada. Ler os 27 CSVs por UF estourava o heap
+ * (~4GB) e o timeout da serverless, então o modo nacional fica restrito a
+ * Presidente. Exportada para teste unitário.
+ */
+export function votingCsvEntryNames(ano, uf) {
+  if (uf === 'BRASIL') return [votingCsvEntryName(ano, 'BR')];
+  return [votingCsvEntryName(ano, uf)];
+}
 const CACHE_TTL = 6 * 60 * 60 * 1000;
 const TSE_RANGE_TIMEOUT_MS = 10 * 60 * 1000;
 const catalogCache = new Map();
@@ -130,32 +142,43 @@ async function openVotingArchive(url) {
   }
 }
 
-async function streamVotingCsv(url, entryName, onRow) {
+async function streamVotingCsv(url, entryNames, onRow) {
   const archive = await openVotingArchive(url);
-  const entry = archive.files.find((file) => file.path === entryName);
-  if (!entry) {
-    if (entryName.endsWith('_BR.csv')) {
-      throw new HttpError(404, 'O TSE ainda não publicou resultados presidenciais nacionais para esta eleição.', { url, entryName });
+  const names = Array.isArray(entryNames) ? entryNames : [entryNames];
+  const entries = names.map((name) => archive.files.find((file) => file.path === name)).filter(Boolean);
+
+  if (!entries.length) {
+    // Pedido de arquivo único nacional (_BR.csv): só existe quando o TSE publica
+    // apuração presidencial consolidada (ex.: 2022). Anos sem esse arquivo caem aqui.
+    if (names.length === 1 && names[0].endsWith('_BR.csv')) {
+      throw new HttpError(404, 'O TSE ainda não publicou resultados presidenciais nacionais para esta eleição.', { url });
     }
-    throw new HttpError(502, 'O arquivo de votação não foi encontrado no pacote do TSE.', { url, entryName });
+    // Pedido agregado (BRASIL = 27 arquivos por UF): nenhum CSV de votação no pacote.
+    if (names.length > 1) {
+      throw new HttpError(404, 'O TSE ainda não publicou dados de votação para esta eleição.', { url });
+    }
+    throw new HttpError(502, 'Nenhum arquivo de votação foi encontrado no pacote do TSE.', { url });
   }
-  const csvStream = entry.stream();
-  const parser = parse({
-    columns: (header) => header.map((name) => VOTING_COLUMNS.has(name) ? name : false),
-    delimiter: ';',
-    encoding: 'latin1',
-    bom: true,
-    relax_quotes: true,
-    relax_column_count: true,
-    skip_empty_lines: true,
-  });
-  csvStream.on('error', (error) => parser.destroy(error));
-  const rows = csvStream.pipe(parser);
-  try {
-    for await (const row of rows) onRow(row);
-  } catch (error) {
-    if (error instanceof HttpError) throw error;
-    throw new HttpError(502, 'Não foi possível ler o arquivo oficial de votação do TSE.', { cause: error.message });
+
+  for (const entry of entries) {
+    const csvStream = entry.stream();
+    const parser = parse({
+      columns: (header) => header.map((name) => VOTING_COLUMNS.has(name) ? name : false),
+      delimiter: ';',
+      encoding: 'latin1',
+      bom: true,
+      relax_quotes: true,
+      relax_column_count: true,
+      skip_empty_lines: true,
+    });
+    csvStream.on('error', (error) => parser.destroy(error));
+    const rows = csvStream.pipe(parser);
+    try {
+      for await (const row of rows) onRow(row);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw new HttpError(502, 'Não foi possível ler o arquivo oficial de votação do TSE.', { cause: error.message });
+    }
   }
 }
 
@@ -291,14 +314,17 @@ async function getVoteCatalog(scope) {
 
 async function loadVoteCatalog({ ano, uf }, key) {
   const source = zipUrlVotingCandidates(ano);
-  const entryName = votingCsvEntryName(ano, uf === 'BRASIL' ? 'BR' : uf);
+  // Modo BRASIL: lê o arquivo nacional único (_BR.csv) com a apuração
+  // presidencial consolidada. Agregar os 27 CSVs por UF estourava o heap e o
+  // timeout da serverless, então o modo nacional fica restrito a Presidente.
+  const entryNames = votingCsvEntryNames(ano, uf);
 
   const aggregates = new Map();
   const candidates = new Map();
   const cargos = new Set();
   const turnos = new Set();
 
-  await streamVotingCsv(source, entryName, (row) => {
+  await streamVotingCsv(source, entryNames, (row) => {
     const cargo = String(row.DS_CARGO ?? '').trim();
     if (uf === 'BRASIL' && !cargo.toLocaleLowerCase('pt-BR').includes('presidente')) return;
     const turno = Number(row.NR_TURNO);

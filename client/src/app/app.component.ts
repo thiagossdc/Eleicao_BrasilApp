@@ -36,6 +36,22 @@ export class AppComponent {
     });
   }
 
+  /** Marca (texto + bandeira): volta à tela inicial sempre do zero, mesmo já estando nela. */
+  voltarAoInicio(event: Event): void {
+    event.preventDefault();
+    this.closeTutorialIntro();
+    const rotaAtual = this.router.url.split('?')[0].split('#')[0];
+    if (rotaAtual === '/' || rotaAtual === '/cruzamento' || rotaAtual === '') {
+      // Já na tela inicial: o Router reutilizaria o componente (ngOnInit não roda
+      // de novo), então o reload garante filtros, resultado e URL limpos.
+      window.location.assign('/');
+      return;
+    }
+    // Vindo de outra página (/consulta, /sync, /tutorial): navegação SPA recria
+    // a página de cruzamento do zero, já sem query params.
+    void this.router.navigate(['/']);
+  }
+
   closeTutorialIntro(): void {
     if (!this.showTutorialIntro()) {
       return;

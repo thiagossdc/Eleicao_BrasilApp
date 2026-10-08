@@ -1,7 +1,7 @@
 <div class="app-shell" [attr.inert]="showTutorialIntro() ? '' : null">
   <header class="app-shell__header">
     <div class="app-shell__identity">
-      <a routerLink="/cruzamento" class="app-shell__brand">
+      <a routerLink="/" class="app-shell__brand" (click)="voltarAoInicio($event)" aria-label="Eleição Limpa Brasil — voltar à tela inicial">
         <span class="app-shell__mark" aria-hidden="true">
           <svg viewBox="0 0 32 32" focusable="false">
             <defs>

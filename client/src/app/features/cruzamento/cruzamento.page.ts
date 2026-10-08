@@ -642,12 +642,17 @@ export class CruzamentoPageComponent implements OnInit, OnDestroy {
     return `Em ${summary.n} municípios, ${indicador} e o voto em ${alvo} ${direcao} com força ${summary.forca} (r ${formatR(summary.r)}). A metade central votou entre ${fmtPct(summary.q1)} e ${fmtPct(summary.q3)}; ${summary.outliers === 0 ? 'nenhum município destoou do padrão' : summary.outliers + ' ' + (summary.outliers === 1 ? 'município destoou' : 'municípios destoaram') + ' do padrão'}. É associação entre municípios, não causa nem voto individual.`;
   });
 
-  /** Cor oficial da sigla para chips e selos (fundo). */
+  /** Cor oficial da sigla para a borda do selo (contorno, sem chapado). */
   partidoCor(sigla: string | null | undefined): string {
     return sigla ? partidoColor(sigla).primary : 'transparent';
   }
 
-  /** Texto legível sobre a cor do partido (contraste automático). */
+  /** Texto do selo em contorno: variante escura da sigla, legível sobre fundo claro. */
+  partidoContorno(sigla: string | null | undefined): string {
+    return sigla ? partidoColor(sigla).dark : 'var(--color-text)';
+  }
+
+  /** Texto legível sobre a cor do partido (contraste automático, uso em fundos chapados). */
   partidoTexto(sigla: string | null | undefined): string {
     return sigla ? partidoTextoSobre(sigla) : 'var(--color-text)';
   }
@@ -1203,34 +1208,57 @@ interface BarChartPlan {
   overallMeanValue: number;
   overallMeanY: number;
   xLabels: string[];
+  /** Geometria da área de plotagem: o template vincula eixos/grades a estes valores. */
+  plot: { left: number; right: number; top: number; bottom: number; width: number; height: number };
+  /** Posições de rótulos derivadas da geometria (evita números mágicos no HTML). */
+  labels: { yAxisX: number; xAxisY: number };
 }
 
-const BAR_CHART_PADDING = { left: 22, right: 22, top: 16, bottom: 40 } as const;
+const BAR_CHART_SVG = { width: 720, height: 400 } as const;
+// Margens com respiro: esquerda p/ rótulos do eixo Y, topo p/ valores das barras,
+// base p/ "Faixa N". Sem título interno no SVG (o <h2> do painel já titula).
+const BAR_CHART_PADDING = { left: 56, right: 16, top: 36, bottom: 48 } as const;
 
 /** Rampa neutra (azul) quando não há sigla para colorir a análise. */
 const NEUTRAL_RAMP = ['#e6f0f8', '#bed5e6', '#87afcc', '#4e86aa', '#1e5273'] as const;
 
 /** Exportada para testes: monta o gráfico de média por faixa do indicador. */
 export function createBarChart(points: AnalysisPoint[]): BarChartPlan {
+  const emptyPlot = {
+    left: BAR_CHART_PADDING.left,
+    right: BAR_CHART_SVG.width - BAR_CHART_PADDING.right,
+    top: BAR_CHART_PADDING.top,
+    bottom: BAR_CHART_SVG.height - BAR_CHART_PADDING.bottom,
+    width: BAR_CHART_SVG.width - BAR_CHART_PADDING.left - BAR_CHART_PADDING.right,
+    height: BAR_CHART_SVG.height - BAR_CHART_PADDING.top - BAR_CHART_PADDING.bottom,
+  };
+  const emptyLabels = { yAxisX: BAR_CHART_PADDING.left - 8, xAxisY: BAR_CHART_SVG.height - 10 };
   const groups = createQuintiles(points);
   if (!groups.length) {
-    return { bars: [], yMax: 1, gridlines: [], overallMeanValue: 0, overallMeanY: 0, xLabels: [] };
+    return { bars: [], yMax: 1, gridlines: [], overallMeanValue: 0, overallMeanY: 0, xLabels: [], plot: emptyPlot, labels: emptyLabels };
   }
 
-  const yMax = Math.max(1, ...groups.map((group) => group.mean));
+  // Teto "bonito" do eixo Y com ~15% de respiro: rótulos de valor nunca colidem
+  // com o topo nem com o título, qualquer que seja a ordem de grandeza.
+  const rawMax = Math.max(1, ...groups.map((group) => group.mean));
+  const magnitude = 10 ** Math.floor(Math.log10(rawMax));
+  const normalized = rawMax / magnitude;
+  const niceCeil = (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 2.5 ? 2.5 : normalized <= 5 ? 5 : 10) * magnitude;
+  const yMax = niceCeil * 1.15;
   const overallMean =
     points.reduce((sum, point) => sum + point.percentualVotos, 0) / points.length;
   const xLabels = groups.map((group) => group.label);
 
   const plotLeft = BAR_CHART_PADDING.left;
-  const plotRight = 720 - BAR_CHART_PADDING.right;
+  const plotRight = BAR_CHART_SVG.width - BAR_CHART_PADDING.right;
   const plotTop = BAR_CHART_PADDING.top;
-  const plotBottom = 400 - BAR_CHART_PADDING.bottom;
+  const plotBottom = BAR_CHART_SVG.height - BAR_CHART_PADDING.bottom;
   const plotWidth = plotRight - plotLeft;
   const plotHeight = plotBottom - plotTop;
 
   const groupWidth = plotWidth / groups.length;
-  const barWidth = Math.max(18, groupWidth * 0.48);
+  // Largura com mínimo e máximo: legível no desktop, sem estourar no mobile.
+  const barWidth = Math.min(groupWidth * 0.62, Math.max(28, groupWidth * 0.48));
 
   const gridlines = [0, 0.25, 0.5, 0.75, 1].map((fraction) => ({
     value: Math.round(fraction * yMax * 10) / 10,
@@ -1246,7 +1274,16 @@ export function createBarChart(points: AnalysisPoint[]): BarChartPlan {
 
   const overallMeanY = plotTop + plotHeight - (overallMean / yMax) * plotHeight;
 
-  return { bars, yMax, gridlines, overallMeanValue: overallMean, overallMeanY, xLabels };
+  return {
+    bars,
+    yMax,
+    gridlines,
+    overallMeanValue: overallMean,
+    overallMeanY,
+    xLabels,
+    plot: { left: plotLeft, right: plotRight, top: plotTop, bottom: plotBottom, width: plotWidth, height: plotHeight },
+    labels: { yAxisX: plotLeft - 8, xAxisY: BAR_CHART_SVG.height - 10 },
+  };
 }
 
 /** Classificação didática da força da associação linear (|r|). */

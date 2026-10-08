@@ -99,11 +99,8 @@
             <td>{{ row.nomeUrna || '—' }}</td>
             <td>{{ row.uf }}</td>
             <td>{{ row.anoEleicao }}</td>
-            <td
-              class="party-cell"
-              [style.background-color]="partidoCor(row.partido)"
-            >
-              <span class="party-badge" [style.color]="partidoTexto(row.partido)">
+            <td class="party-cell">
+              <span class="party-badge" [style.border-color]="partidoCor(row.partido)" [style.color]="partidoContorno(row.partido)">
                 {{ row.partido || '—' }}
               </span>
             </td>
